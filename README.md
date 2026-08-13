@@ -66,7 +66,9 @@ yarn install
 yarn tauri build
 ```
 
-The bundled app lands in `src-tauri/target/release/bundle/` (`.app`/`.dmg` on macOS).
+The bundled app lands in `src-tauri/target/release/bundle/` — `.app`/`.dmg` on macOS,
+NSIS installer and `.msi` on Windows, `.deb`/`.rpm`/`.AppImage` on Linux. Releases ship
+artifacts for all three platforms.
 
 **Prerequisites:** [Rust](https://rustup.rs) (stable), Node.js ≥ 20 with
 [corepack](https://nodejs.org/api/corepack.html) enabled (Chronotile uses Yarn 4), and the
@@ -128,6 +130,8 @@ application directory:
 
 ```
 ~/Library/Application Support/design.xterr.chronotile/   # macOS
+~/.config|~/.local/share/design.xterr.chronotile/        # Linux
+%APPDATA%\design.xterr.chronotile\                       # Windows
 ├── sources.json    # registered database paths
 └── cache.db        # derived rollup cache (safe to delete; rebuilds)
 ```

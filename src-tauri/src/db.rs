@@ -27,17 +27,29 @@ pub fn open_readonly(path: &str) -> Result<Connection, String> {
 }
 
 fn default_candidates() -> Vec<PathBuf> {
-    let Some(home) = dirs::home_dir() else {
-        return Vec::new();
-    };
-    [
-        ".local/share/opencode/opencode.db",
-        "Library/Application Support/opencode/opencode.db",
-    ]
-    .iter()
-    .map(|rel| home.join(rel))
-    .filter(|p| p.is_file())
-    .collect()
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join(".local/share"));
+        #[cfg(target_os = "macos")]
+        roots.push(home.join("Library/Application Support"));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(dir) = dirs::data_local_dir() {
+            roots.push(dir);
+        }
+        if let Some(dir) = dirs::data_dir() {
+            roots.push(dir);
+        }
+    }
+    let mut out: Vec<PathBuf> = Vec::new();
+    for root in roots {
+        let candidate = root.join("opencode/opencode.db");
+        if candidate.is_file() && !out.contains(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
 }
 
 fn derive_name(path: &Path) -> String {

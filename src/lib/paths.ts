@@ -1,12 +1,16 @@
+const SEPARATORS = /[\\/]+/
+
 export function basename(path: string): string {
-  const parts = path.split("/").filter(Boolean)
+  const parts = path.split(SEPARATORS).filter(Boolean)
   return parts[parts.length - 1] ?? path
 }
 
 export function middleTruncatePath(path: string, head = 3, tail = 3): string {
-  const parts = path.split("/").filter(Boolean)
+  const parts = path.split(SEPARATORS).filter(Boolean)
   if (parts.length <= head + tail) return path
-  return `/${parts.slice(0, head).join("/")}/…/${parts.slice(-tail).join("/")}`
+  const sep = path.includes("\\") ? "\\" : "/"
+  const prefix = path.startsWith("/") ? "/" : ""
+  return `${prefix}${parts.slice(0, head).join(sep)}${sep}…${sep}${parts.slice(-tail).join(sep)}`
 }
 
 export function projectDisplayName(name: string, worktree: string): string {
@@ -15,8 +19,12 @@ export function projectDisplayName(name: string, worktree: string): string {
   return basename(worktree)
 }
 
+function looksLikePath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)
+}
+
 export function sessionProjectName(projectName: string, directory: string): string {
   if (!projectName || projectName === "/") return basename(directory) || "global"
-  if (projectName.startsWith("/")) return basename(projectName)
+  if (looksLikePath(projectName)) return basename(projectName)
   return projectName
 }

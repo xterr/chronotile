@@ -10,18 +10,30 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Release ${{ github.ref_name }}
-    runs-on: macos-latest
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-latest
+            target: --target universal-apple-darwin
+          - platform: windows
+            runner: windows-latest
+            target: ""
+          - platform: linux
+            runner: ubuntu-22.04
+            target: ""
     env:
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Stamp version from tag
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -34,6 +46,13 @@ jobs:
           awk -v ver="$VERSION" 'f && /^version = /{sub(/"[^"]*"/, "\"" ver "\""); f=0} /^name = "app"$/{f=1} 1' src-tauri/Cargo.lock > Cargo.lock.tmp
           mv Cargo.lock.tmp src-tauri/Cargo.lock
 
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -45,7 +64,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -56,7 +75,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Import Apple Developer certificate
-        if: env.HAS_APPLE_CERT == 'true'
+        if: matrix.platform == 'macos' && env.HAS_APPLE_CERT == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -77,13 +96,14 @@ jobs:
           fi
           echo "CERT_ID=$cert_id" >> "$GITHUB_ENV"
 
-      - name: Build universal macOS bundle
+      - name: Build bundles
+        shell: bash
         env:
           SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
           SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ "$HAS_APPLE_CERT" = "true" ]; then
+          if [ "${{ matrix.platform }}" = "macos" ] && [ "$HAS_APPLE_CERT" = "true" ]; then
             export APPLE_SIGNING_IDENTITY="$CERT_ID"
             if [ -n "$SECRET_APPLE_ID" ]; then
               export APPLE_ID="$SECRET_APPLE_ID"
@@ -91,16 +111,56 @@ jobs:
               export APPLE_TEAM_ID="$SECRET_APPLE_TEAM_ID"
             fi
           fi
-          yarn tauri build --target universal-apple-darwin
+          yarn tauri build ${{ matrix.target }}
 
-      - name: Locate DMG
+      - name: Collect artifacts
+        shell: bash
         run: |
-          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' -print -quit)"
-          if [ -z "$dmg" ]; then
-            echo "No DMG produced" >&2
-            exit 1
-          fi
-          cp "$dmg" "Chronotile_${VERSION}_macos_universal.dmg"
+          mkdir -p dist-artifacts
+          case "${{ matrix.platform }}" in
+            macos)
+              cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg \
+                "dist-artifacts/Chronotile_${VERSION}_macos_universal.dmg"
+              ;;
+            windows)
+              cp src-tauri/target/release/bundle/nsis/*-setup.exe \
+                "dist-artifacts/Chronotile_${VERSION}_windows_x64-setup.exe"
+              cp src-tauri/target/release/bundle/msi/*.msi \
+                "dist-artifacts/Chronotile_${VERSION}_windows_x64.msi"
+              ;;
+            linux)
+              cp src-tauri/target/release/bundle/deb/*.deb \
+                "dist-artifacts/Chronotile_${VERSION}_linux_amd64.deb"
+              cp src-tauri/target/release/bundle/rpm/*.rpm \
+                "dist-artifacts/Chronotile_${VERSION}_linux_x86_64.rpm"
+              cp src-tauri/target/release/bundle/appimage/*.AppImage \
+                "dist-artifacts/Chronotile_${VERSION}_linux_x86_64.AppImage"
+              ;;
+          esac
+          ls -la dist-artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.platform }}
+          path: dist-artifacts/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
 
       - name: Generate release notes
         uses: orhun/git-cliff-action@v4
@@ -115,22 +175,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          asset="Chronotile_${VERSION}_macos_universal.dmg#Chronotile ${VERSION} (macOS universal .dmg)"
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release edit "${GITHUB_REF_NAME}" --notes-file RELEASE_NOTES.md
-            gh release upload "${GITHUB_REF_NAME}" "$asset" --clobber
+            gh release upload "${GITHUB_REF_NAME}" dist-artifacts/* --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
               --title "Chronotile ${GITHUB_REF_NAME}" \
               --notes-file RELEASE_NOTES.md \
               --verify-tag \
-              "$asset"
+              dist-artifacts/*
           fi
 
   sync:
     name: Sync version and changelog
     runs-on: ubuntu-latest
-    needs: release
+    needs: publish
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
