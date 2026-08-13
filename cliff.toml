@@ -1,0 +1,40 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here.
+
+"""
+body = """
+{% if version %}\
+## [{{ version }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}
+
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+filter_commits = false
+tag_pattern = "[0-9]+\\.[0-9]+\\.[0-9]+"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+  { message = "^refactor", group = "<!-- 2 -->Refactoring" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
+  { message = "^doc", group = "<!-- 4 -->Documentation" },
+  { message = "^test", group = "<!-- 5 -->Testing" },
+  { message = "^(style|lint)", group = "<!-- 6 -->Styling" },
+  { message = "^revert", group = "<!-- 7 -->Reverts" },
+  { message = "^(chore|ci|build|bump|update|merge)", group = "<!-- 8 -->Miscellaneous" },
+  { message = ".*", group = "<!-- 9 -->Other" },
+]

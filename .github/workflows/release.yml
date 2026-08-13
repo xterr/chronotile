@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release ${{ github.ref_name }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stamp version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > tauri.conf.json.tmp
+          mv tauri.conf.json.tmp src-tauri/tauri.conf.json
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+          awk -v ver="$VERSION" 'f && /^version = /{sub(/"[^"]*"/, "\"" ver "\""); f=0} /^name = "app"$/{f=1} 1' src-tauri/Cargo.lock > Cargo.lock.tmp
+          mv Cargo.lock.tmp src-tauri/Cargo.lock
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build universal macOS bundle
+        run: yarn tauri build --target universal-apple-darwin
+
+      - name: Locate DMG
+        run: |
+          dmg="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' -print -quit)"
+          if [ -z "$dmg" ]; then
+            echo "No DMG produced" >&2
+            exit 1
+          fi
+          cp "$dmg" "Chronotile_${VERSION}_macos_universal.dmg"
+
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all
+        env:
+          OUTPUT: RELEASE_NOTES.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Create or update release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          asset="Chronotile_${VERSION}_macos_universal.dmg#Chronotile ${VERSION} (macOS universal .dmg)"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" --notes-file RELEASE_NOTES.md
+            gh release upload "${GITHUB_REF_NAME}" "$asset" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "Chronotile ${GITHUB_REF_NAME}" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag \
+              "$asset"
+          fi
+
+  sync:
+    name: Sync version and changelog
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Stamp version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > tauri.conf.json.tmp
+          mv tauri.conf.json.tmp src-tauri/tauri.conf.json
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+          awk -v ver="$VERSION" 'f && /^version = /{sub(/"[^"]*"/, "\"" ver "\""); f=0} /^name = "app"$/{f=1} 1' src-tauri/Cargo.lock > Cargo.lock.tmp
+          mv Cargo.lock.tmp src-tauri/Cargo.lock
+
+      - name: Generate CHANGELOG.md
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: -o CHANGELOG.md
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit and push
+        run: |
+          git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "Nothing to sync"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "bump: release ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

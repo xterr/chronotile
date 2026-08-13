@@ -149,6 +149,22 @@ The frontend lives in `src/` (React 19, Tailwind 4, shadcn/ui, Recharts); the ba
 `src-tauri/src/` — `cache/` holds the ingest engine, migrations, and read layer. Logo proposals
 and brand assets live in `design/`.
 
+## Releasing
+
+The git tag is the single source of truth. To cut a release:
+
+```sh
+git tag 0.2.0            # exact version, no v prefix
+git push origin 0.2.0
+```
+
+Pushing the tag triggers [`release.yml`](.github/workflows/release.yml): it stamps the tag's version
+into `tauri.conf.json`, `package.json`, and the Cargo manifests, builds a universal macOS bundle
+(Apple Silicon + Intel), generates release notes from the conventional-commit history with
+[git-cliff](https://git-cliff.org), and publishes a GitHub Release with the `.dmg` attached. After a
+successful release, a follow-up job commits the version bumps and the regenerated `CHANGELOG.md`
+back to `main` — no manual version editing anywhere.
+
 ## Uninstall
 
 ```sh
