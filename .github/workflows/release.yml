@@ -13,6 +13,8 @@ jobs:
   release:
     name: Release ${{ github.ref_name }}
     runs-on: macos-latest
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,8 +55,43 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Import Apple Developer certificate
+        if: env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+          cert_id="$(security find-identity -v -p codesigning build.keychain | grep 'Developer ID Application' | head -1 | awk -F'"' '{print $2}')"
+          if [ -z "$cert_id" ]; then
+            echo "No 'Developer ID Application' identity found in the imported certificate" >&2
+            exit 1
+          fi
+          echo "CERT_ID=$cert_id" >> "$GITHUB_ENV"
+
       - name: Build universal macOS bundle
-        run: yarn tauri build --target universal-apple-darwin
+        env:
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ "$HAS_APPLE_CERT" = "true" ]; then
+            export APPLE_SIGNING_IDENTITY="$CERT_ID"
+            if [ -n "$SECRET_APPLE_ID" ]; then
+              export APPLE_ID="$SECRET_APPLE_ID"
+              export APPLE_PASSWORD="$SECRET_APPLE_PASSWORD"
+              export APPLE_TEAM_ID="$SECRET_APPLE_TEAM_ID"
+            fi
+          fi
+          yarn tauri build --target universal-apple-darwin
 
       - name: Locate DMG
         run: |

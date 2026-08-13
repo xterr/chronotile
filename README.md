@@ -72,6 +72,11 @@ The bundled app lands in `src-tauri/target/release/bundle/` (`.app`/`.dmg` on ma
 [corepack](https://nodejs.org/api/corepack.html) enabled (Chronotile uses Yarn 4), and the
 [Tauri platform dependencies](https://v2.tauri.app/start/prerequisites/) for your OS.
 
+> [!NOTE]
+> Release DMGs are currently unsigned, so macOS Gatekeeper will warn on first launch.
+> Right-click the app → **Open**, or allow it under **System Settings → Privacy & Security →
+> Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Chronotile.app`.
+
 ## Quick start
 
 1. Launch Chronotile — your default opencode database
@@ -164,6 +169,11 @@ into `tauri.conf.json`, `package.json`, and the Cargo manifests, builds a univer
 [git-cliff](https://git-cliff.org), and publishes a GitHub Release with the `.dmg` attached. After a
 successful release, a follow-up job commits the version bumps and the regenerated `CHANGELOG.md`
 back to `main` — no manual version editing anywhere.
+
+Builds are [signed and notarized](https://v2.tauri.app/distribute/sign/macos/) automatically when
+the repository has the following secrets (otherwise the DMG ships unsigned): `APPLE_CERTIFICATE`
+(base64 `.p12` with a *Developer ID Application* identity), `APPLE_CERTIFICATE_PASSWORD`, and — for
+notarization — `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID`.
 
 ## Uninstall
 
