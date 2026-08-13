@@ -113,6 +113,16 @@ export function ThemeProvider({
       root.classList.remove("light", "dark")
       root.classList.add(resolvedTheme)
 
+      if ("__TAURI_INTERNALS__" in window) {
+        void import("@tauri-apps/api/window")
+          .then(({ getCurrentWindow }) =>
+            getCurrentWindow().setTheme(
+              nextTheme === "system" ? null : resolvedTheme
+            )
+          )
+          .catch(() => undefined)
+      }
+
       if (restoreTransitions) {
         restoreTransitions()
       }

@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Yarn (berry, node-modules linker)
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Tauri / Rust
+src-tauri/target
+src-tauri/gen/schemas
+
+# Tooling state & test artifacts
+.omo/
+.playwright-mcp/

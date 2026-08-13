@@ -1,0 +1,212 @@
+import { useMemo } from "react"
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+
+import { CalendarHeatmap } from "@/components/calendar-heatmap"
+import { StatCard } from "@/components/stat-card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
+import { useQuery } from "@/hooks/use-query"
+import { api } from "@/lib/api"
+import { formatCost, formatCount, formatTokens } from "@/lib/format"
+import { useDashboard } from "@/state/dashboard-context"
+import { useSettings } from "@/state/settings-context"
+
+const costConfig = {
+  cost: { label: "Cost", color: "var(--chart-1)" },
+} satisfies ChartConfig
+
+const tokenConfig = {
+  input: { label: "Input", color: "var(--chart-1)" },
+  output: { label: "Output", color: "var(--chart-2)" },
+  reasoning: { label: "Reasoning", color: "var(--chart-3)" },
+  cacheRead: { label: "Cache read", color: "var(--chart-4)" },
+  cacheWrite: { label: "Cache write", color: "var(--chart-5)" },
+} satisfies ChartConfig
+
+export function OverviewPage() {
+  const { rangeArgs, activePath } = useDashboard()
+  const { settings } = useSettings()
+  const enabled = activePath !== null
+  const overview = useQuery(() => api.overview(rangeArgs), [rangeArgs], enabled)
+  const daily = useQuery(() => api.dailySeries(rangeArgs), [rangeArgs], enabled)
+  const year = useQuery(
+    () =>
+      api.dailySeries({
+        dbPaths: activePath ? [activePath] : [],
+        from: Date.now() - 365 * 86_400_000,
+      }),
+    [activePath],
+    enabled,
+  )
+
+  const data = overview.data
+  const totalTokens = data
+    ? data.tokens.input +
+      data.tokens.output +
+      data.tokens.reasoning +
+      data.tokens.cacheRead +
+      data.tokens.cacheWrite
+    : 0
+  const cacheHit = data
+    ? data.tokens.cacheRead / Math.max(1, data.tokens.input + data.tokens.cacheRead)
+    : 0
+
+  const dailyRows = useMemo(
+    () =>
+      (daily.data ?? []).map((d) => ({
+        date: d.date,
+        cost: d.cost,
+        input: d.tokens.input,
+        output: d.tokens.output,
+        reasoning: d.tokens.reasoning,
+        cacheRead: d.tokens.cacheRead,
+        cacheWrite: d.tokens.cacheWrite,
+      })),
+    [daily.data],
+  )
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <StatCard label="Total cost" value={data ? formatCost(data.cost) : null} />
+        <StatCard label="Tokens" value={data ? formatTokens(totalTokens) : null} />
+        <StatCard
+          label="Cache hit"
+          value={data ? `${(cacheHit * 100).toFixed(1)}%` : null}
+        />
+        <StatCard label="Sessions" value={data ? formatCount(data.sessions) : null} />
+        <StatCard label="Prompts" value={data ? formatCount(data.prompts) : null} />
+        <StatCard
+          label="Tool calls"
+          value={data ? formatCount(data.toolCalls) : null}
+        />
+        <StatCard label="Models" value={data ? formatCount(data.modelsUsed) : null} />
+        <StatCard
+          label="Active days"
+          value={data ? formatCount(data.activeDays) : null}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Daily cost</CardTitle>
+            <CardDescription>USD spent per day</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={costConfig} className="h-64 w-full">
+              <AreaChart data={dailyRows} accessibilityLayer>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={(value: string) => value.slice(5)}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  width={50}
+                  tickFormatter={(value: number) => formatCost(value)}
+                />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(value) => formatCost(Number(value))}
+                    />
+                  }
+                />
+                <Area
+                  dataKey="cost"
+                  type="monotone"
+                  fill="var(--color-cost)"
+                  fillOpacity={0.25}
+                  stroke="var(--color-cost)"
+                />
+              </AreaChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Daily tokens</CardTitle>
+            <CardDescription>Token breakdown per day</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={tokenConfig} className="h-64 w-full">
+              <BarChart data={dailyRows} accessibilityLayer>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={(value: string) => value.slice(5)}
+                />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  width={50}
+                  tickFormatter={(value: number) => formatTokens(value)}
+                />
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(value, name, item) => (
+                        <div className="flex w-full items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className="size-2 rounded-xs"
+                              style={{ background: item.color }}
+                            />
+                            {tokenConfig[name as keyof typeof tokenConfig].label}
+                          </div>
+                          <span className="font-mono tabular-nums">
+                            {formatTokens(Number(value))}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  }
+                />
+                {Object.keys(tokenConfig).map((key) => (
+                  <Bar
+                    key={key}
+                    dataKey={key}
+                    stackId="tokens"
+                    fill={`var(--color-${key})`}
+                  />
+                ))}
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Last 12 months</CardTitle>
+          <CardDescription>
+            Daily {settings.heatmapMetric === "cost" ? "spend" : "token"} intensity
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CalendarHeatmap days={year.data ?? []} metric={settings.heatmapMetric} />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
