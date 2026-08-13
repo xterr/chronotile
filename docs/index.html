@@ -1,0 +1,1385 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Chronotile — Local usage analytics for opencode</title>
+  <meta name="description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, and sessions — tiled by day. 100% local, read-only, no telemetry. MIT." />
+  <meta name="theme-color" content="#101014" />
+  <meta name="color-scheme" content="dark" />
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Chronotile" />
+  <meta property="og:title" content="Chronotile — Local usage analytics for opencode" />
+  <meta property="og:description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, and sessions — tiled by day. 100% local, read-only, no telemetry." />
+  <meta property="og:url" content="https://xterr.github.io/chronotile/" />
+  <meta property="og:image" content="https://xterr.github.io/chronotile/screenshot.png" />
+  <meta property="og:image:width" content="1440" />
+  <meta property="og:image:height" content="940" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Chronotile — Local usage analytics for opencode" />
+  <meta name="twitter:description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, and sessions — tiled by day." />
+  <meta name="twitter:image" content="https://xterr.github.io/chronotile/screenshot.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+
+  <style>
+    /* ---------------- design tokens ---------------- */
+    :root {
+      /* surfaces (near-black, restrained) */
+      --bg:            #0c0c10;
+      --bg-elev-1:     #101014;
+      --bg-elev-2:     #14141a;
+      --bg-elev-3:     #1a1a22;
+
+      /* borders */
+      --border:        rgba(255, 255, 255, 0.06);
+      --border-strong: rgba(255, 255, 255, 0.10);
+      --border-hover:  rgba(255, 255, 255, 0.16);
+
+      /* text */
+      --fg:            #ededf1;
+      --fg-muted:      #a8a8b3;
+      --fg-dim:        #82828e;
+      --fg-faint:      #55555f;
+
+      /* accent — the app's heatmap green */
+      --accent:        #2fbf71;
+      --accent-hover:  #35d17d;
+      --accent-active: #2ab069;
+      --accent-dim:    rgba(47, 191, 113, 0.14);
+      --accent-glow:   rgba(47, 191, 113, 0.35);
+
+      /* rare secondary hint */
+      --violet:        #c084fc;
+
+      /* type */
+      --font-sans:  'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --font-mono:  ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+      /* spacing / radii */
+      --radius-sm: 6px;
+      --radius:    10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+
+      --nav-h: 64px;
+    }
+
+    /* ---------------- base ---------------- */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--fg);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+      overflow-x: hidden;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* selection */
+    ::selection { background: var(--accent-dim); color: var(--fg); }
+
+    /* focus */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    a {
+      color: var(--fg);
+      text-decoration: none;
+      transition: color 120ms ease;
+    }
+    a:hover { color: var(--accent); }
+
+    p { margin: 0 0 1em; color: var(--fg-muted); }
+    p:last-child { margin-bottom: 0; }
+
+    h1, h2, h3, h4 {
+      margin: 0;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+    }
+
+    ul { margin: 0; padding: 0; list-style: none; }
+
+    img, svg { display: block; max-width: 100%; }
+
+    code, kbd, pre {
+      font-family: var(--font-mono);
+      font-size: 0.925em;
+    }
+
+    /* ---------------- layout ---------------- */
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      padding: 96px 0;
+      scroll-margin-top: calc(var(--nav-h) + 16px);
+    }
+
+    @media (max-width: 720px) {
+      section { padding: 64px 0; }
+      .container { padding: 0 20px; }
+    }
+
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .section-head {
+      max-width: 640px;
+      margin: 0 auto 56px;
+      text-align: center;
+    }
+
+    .section-head h2 {
+      font-size: clamp(28px, 3.2vw, 40px);
+      line-height: 1.15;
+      margin-bottom: 12px;
+    }
+
+    .section-head p {
+      font-size: 17px;
+      color: var(--fg-muted);
+    }
+
+    /* ---------------- nav ---------------- */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      height: var(--nav-h);
+      background: transparent;
+      transition: background 200ms ease, border-color 200ms ease, backdrop-filter 200ms ease;
+      border-bottom: 1px solid transparent;
+    }
+    .nav.is-scrolled {
+      background: rgba(12, 12, 16, 0.72);
+      backdrop-filter: saturate(180%) blur(14px);
+      -webkit-backdrop-filter: saturate(180%) blur(14px);
+      border-bottom-color: var(--border);
+    }
+
+    .nav-inner {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+    }
+    .brand:hover { color: var(--fg); }
+    .brand img { width: 26px; height: 26px; border-radius: 6px; }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+    .nav-links a {
+      font-size: 14px;
+      color: var(--fg-muted);
+      font-weight: 500;
+    }
+    .nav-links a:hover { color: var(--fg); }
+
+    .nav-cta { display: flex; align-items: center; gap: 12px; }
+
+    @media (max-width: 720px) {
+      .nav-links { display: none; }
+    }
+
+    /* ---------------- buttons ---------------- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 40px;
+      padding: 0 18px;
+      border-radius: var(--radius);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .btn:active { transform: translateY(1px); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--fg);
+      border-color: var(--border-strong);
+    }
+    .btn-secondary:hover {
+      color: var(--fg);
+      border-color: var(--border-hover);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--fg-muted);
+      border-color: var(--border);
+      height: 36px;
+      padding: 0 14px;
+      font-size: 13px;
+    }
+    .btn-ghost:hover { color: var(--fg); border-color: var(--border-hover); }
+
+    .btn svg { width: 16px; height: 16px; }
+
+    /* ---------------- split download button ---------------- */
+    .download {
+      position: relative;
+      display: inline-flex;
+      align-items: stretch;
+      border-radius: var(--radius);
+      /* soft outer glow to match the accent color's presence */
+      box-shadow: 0 0 0 1px rgba(47, 191, 113, 0), 0 8px 20px -12px rgba(47, 191, 113, 0.55);
+      isolation: isolate;
+      font-family: inherit;
+    }
+    .download-main,
+    .download-caret {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 44px;
+      background: var(--accent);
+      color: #06110a;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1;
+      border: 0;
+      cursor: pointer;
+      transition: background 140ms ease, color 140ms ease;
+      white-space: nowrap;
+    }
+    .download-main {
+      gap: 10px;
+      padding: 0 18px 0 16px;
+      border-radius: var(--radius) 0 0 var(--radius);
+      text-decoration: none;
+      /* subtle divider */
+      box-shadow: inset -1px 0 0 rgba(6, 17, 10, 0.22);
+    }
+    .download-main:hover { background: var(--accent-hover); color: #06110a; }
+    .download-main:active { transform: translateY(1px); }
+    .download-main svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+    .download-caret {
+      width: 40px;
+      padding: 0;
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+    .download-caret:hover { background: var(--accent-hover); }
+    .download-caret:active { transform: translateY(1px); }
+    .download-caret svg {
+      width: 14px;
+      height: 14px;
+      transition: transform 160ms ease;
+    }
+    .download.is-open .download-caret svg { transform: rotate(180deg); }
+
+    :focus-visible.download-main,
+    :focus-visible.download-caret {
+      outline: 2px solid var(--fg);
+      outline-offset: 3px;
+    }
+
+    /* dropdown menu */
+    .download-menu {
+      position: absolute;
+      top: calc(100% + 10px);
+      left: 0;
+      min-width: 260px;
+      padding: 8px;
+      background: var(--bg-elev-2);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      box-shadow:
+        0 20px 40px -20px rgba(0, 0, 0, 0.7),
+        0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+      z-index: 40;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+      transition: opacity 140ms ease, transform 140ms ease;
+      text-align: left;
+    }
+    .download.is-open .download-menu {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .download-menu[hidden] { display: none; }
+
+    .download-menu-group {
+      padding: 6px 0;
+    }
+    .download-menu-group + .download-menu-group {
+      border-top: 1px solid var(--border);
+    }
+    .download-menu-label {
+      padding: 6px 12px 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--fg-dim);
+      font-weight: 500;
+    }
+    .download-menu a[role="menuitem"] {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      color: var(--fg);
+      font-size: 13.5px;
+      font-weight: 500;
+      transition: background 120ms ease, color 120ms ease;
+    }
+    .download-menu a[role="menuitem"] .fmt {
+      color: var(--fg-dim);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .download-menu a[role="menuitem"]:hover,
+    .download-menu a[role="menuitem"]:focus-visible {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--fg);
+      outline: none;
+    }
+    .download-menu a[role="menuitem"]:focus-visible {
+      box-shadow: inset 0 0 0 1px var(--accent);
+    }
+
+    .download-menu-footer {
+      margin-top: 4px;
+      padding-top: 6px;
+      border-top: 1px solid var(--border);
+    }
+    .download-menu-footer a[role="menuitem"] {
+      color: var(--accent);
+      font-size: 13px;
+      justify-content: flex-start;
+    }
+    .download-menu-footer a[role="menuitem"]:hover,
+    .download-menu-footer a[role="menuitem"]:focus-visible {
+      color: var(--accent-hover);
+      background: var(--accent-dim);
+    }
+
+    /* meta line under CTA row (version · format) */
+    .download-meta {
+      display: block;
+      min-height: 1.2em;
+      margin-top: 12px;
+      font-size: 12.5px;
+      color: var(--fg-dim);
+      font-family: var(--font-mono);
+      letter-spacing: 0.01em;
+      text-align: center;
+    }
+    .download-meta[hidden] { display: none; }
+    .download-meta .sep { color: var(--fg-faint); margin: 0 6px; }
+
+    /* small platform note (macOS gatekeeper) */
+    .dl-note {
+      margin: 6px 0 0;
+      font-size: 12.5px;
+      color: var(--fg-dim);
+      text-align: center;
+      line-height: 1.4;
+    }
+    .dl-note[hidden] { display: none; }
+    .dl-note kbd {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+    }
+
+    /* ---------------- hero ---------------- */
+    .hero {
+      position: relative;
+      padding: 96px 0 64px;
+      text-align: center;
+      /* clip pseudo-element overflow horizontally without breaking sticky
+         children; overflow: clip is supported everywhere we target */
+      overflow-x: clip;
+    }
+    @media (max-width: 720px) { .hero { padding: 64px 0 40px; } }
+
+    /* one restrained ambient glow, top-center — the ellipse's natural
+       radial falloff sits inside the visible area so no hard edge shows */
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -220px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(1000px, 120vw);
+      height: 620px;
+      background: radial-gradient(ellipse at center, rgba(47, 191, 113, 0.16), transparent 68%);
+      filter: blur(40px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero > .container { position: relative; z-index: 1; }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      font-size: 12.5px;
+      font-weight: 500;
+      margin-bottom: 28px;
+    }
+    .hero-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    .hero h1 {
+      font-size: clamp(36px, 5.6vw, 64px);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      max-width: 880px;
+      margin: 0 auto 22px;
+      font-weight: 600;
+    }
+    .hero h1 .accent { color: var(--fg); border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+    .hero h1 a { color: inherit; border-bottom: 1px dashed var(--border-hover); }
+    .hero h1 a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .hero-sub {
+      font-size: clamp(16px, 1.6vw, 19px);
+      line-height: 1.55;
+      color: var(--fg-muted);
+      max-width: 640px;
+      margin: 0 auto 24px;
+    }
+
+    .hero-ctas {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 4px;
+      /* lift the CTA row (and its dropdown menu) above later hero siblings
+         — specifically .shot-wrap / .shot, which paint later in DOM order
+         and would otherwise obscure the open dropdown. NOTE: this creates a
+         stacking context, so the dropdown's z-index is scoped inside it. */
+      position: relative;
+      z-index: 30;
+    }
+    /* NOTE: .download-meta and .dl-note deliberately DO NOT get z-index.
+       They sit vertically above the screenshot (no overlap there) but they
+       ARE inside the dropdown's expanded vertical footprint — giving them
+       an equal z-index would let them paint on top of the dropdown itself
+       (same stacking level, later DOM order wins). Leaving them at auto
+       means .hero-ctas (z-index 30) and everything inside it paint above. */
+
+    .hero-trust {
+      /* sits between subline and CTA row — see hero markup. block-level flex
+         (not inline-flex) so it doesn't share a line with the adjacent
+         inline-flex .hero-ctas that follows it */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 auto 28px;
+      font-size: 13px;
+      color: var(--fg-dim);
+    }
+    .hero-trust .sep { color: var(--fg-faint); }
+
+    /* screenshot frame */
+    .shot {
+      position: relative;
+      margin: 72px auto 0;
+      max-width: 1200px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, var(--bg-elev-2), var(--bg-elev-1));
+      border: 1px solid var(--border-strong);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+        0 30px 80px -30px rgba(0, 0, 0, 0.7),
+        0 0 120px -20px rgba(47, 191, 113, 0.18);
+      overflow: hidden;
+    }
+    @media (max-width: 720px) { .shot { margin-top: 48px; } }
+
+    .shot-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 12px;
+      background: var(--bg-elev-1);
+      border-bottom: 1px solid var(--border);
+    }
+    .shot-bar .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    /* subtle glow underneath */
+    .shot-wrap { position: relative; }
+    .shot-wrap::after {
+      content: '';
+      position: absolute;
+      left: 15%;
+      right: 15%;
+      bottom: -30px;
+      height: 60px;
+      background: radial-gradient(ellipse at center, rgba(47, 191, 113, 0.10), transparent 72%);
+      filter: blur(18px);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* ---------------- features ---------------- */
+    .features {
+      background: var(--bg);
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    @media (max-width: 960px) {
+      .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .feature-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    .feature {
+      padding: 26px;
+      background: var(--bg-elev-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+    .feature:hover {
+      border-color: var(--border-hover);
+      background: var(--bg-elev-2);
+    }
+
+    .feature-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      background: var(--accent-dim);
+      margin-bottom: 18px;
+    }
+    .feature-icon svg { width: 18px; height: 18px; }
+
+    .feature h3 {
+      font-size: 16px;
+      line-height: 1.3;
+      margin-bottom: 8px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .feature p {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--fg-muted);
+    }
+
+    /* ---------------- how it works ---------------- */
+    .how {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 40%),
+        var(--bg);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      counter-reset: step;
+      /* <ol> defaults: hide the browser marker and the padding it reserves,
+         we render our own "01 — Ingest" numbers via .step-num */
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    @media (max-width: 860px) { .steps { grid-template-columns: minmax(0, 1fr); } }
+
+    .step {
+      position: relative;
+      padding: 28px 26px;
+      background: var(--bg-elev-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+    .step-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent);
+      margin-bottom: 14px;
+      letter-spacing: 0.04em;
+    }
+    .step h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .step p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--fg-muted);
+    }
+    .step code {
+      color: var(--fg);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12.5px;
+    }
+
+    .stack-line {
+      margin-top: 40px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--fg-dim);
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
+    }
+    .stack-line span { color: var(--fg-muted); }
+
+    /* ---------------- privacy strip ---------------- */
+    .privacy {
+      padding: 72px 0;
+      text-align: center;
+      background:
+        radial-gradient(ellipse at center top, rgba(47, 191, 113, 0.07), transparent 60%),
+        var(--bg);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .privacy p {
+      max-width: 720px;
+      margin: 0 auto;
+      font-size: clamp(16px, 1.6vw, 19px);
+      line-height: 1.55;
+      color: var(--fg);
+      letter-spacing: -0.01em;
+    }
+    .privacy p strong { color: var(--accent); font-weight: 600; }
+
+    /* ---------------- footer ---------------- */
+    footer {
+      padding: 40px 0 48px;
+      border-top: 1px solid var(--border);
+    }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .footer-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--fg-muted);
+      font-size: 13.5px;
+    }
+    .footer-brand img { width: 22px; height: 22px; border-radius: 5px; }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      font-size: 13.5px;
+      color: var(--fg-muted);
+    }
+    .footer-links a:hover { color: var(--fg); }
+
+    /* screen reader only */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <a href="#main" class="sr-only">Skip to content</a>
+
+  <header class="nav" id="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top" aria-label="Chronotile home">
+        <img src="logo.svg" alt="" aria-hidden="true" />
+        <span>Chronotile</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How it works</a>
+      </nav>
+
+      <div class="nav-cta">
+        <a class="btn btn-ghost" href="https://github.com/xterr/chronotile" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.93c.58.1.79-.25.79-.55v-2.02c-3.2.7-3.87-1.37-3.87-1.37-.52-1.34-1.28-1.7-1.28-1.7-1.04-.72.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.41-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ HERO ============ -->
+    <section class="hero" id="top">
+      <div class="container">
+        <span class="hero-badge">
+          <span class="dot" aria-hidden="true"></span>
+          Free · Open source · MIT
+        </span>
+
+        <h1>
+          Local usage analytics<br/>for <a href="https://opencode.ai" target="_blank" rel="noopener noreferrer">opencode</a>.
+        </h1>
+
+        <p class="hero-sub">
+          Cost, tokens, models, tools, and sessions — tiled by day. A native desktop dashboard for the data opencode already keeps on your disk.
+        </p>
+
+        <div class="hero-trust">
+          <span>100% local</span>
+          <span class="sep" aria-hidden="true">·</span>
+          <span>read-only</span>
+          <span class="sep" aria-hidden="true">·</span>
+          <span>no telemetry</span>
+          <span class="sep" aria-hidden="true">·</span>
+          <span>MIT</span>
+        </div>
+
+        <div class="hero-ctas">
+          <!-- split download button: main + caret. main href + label are
+               populated from the GitHub releases API on page load; static
+               fallback = generic "Download" pointing to the releases page. -->
+          <div class="download" id="download">
+            <a class="download-main"
+               id="dl-main"
+               href="https://github.com/xterr/chronotile/releases/latest"
+               target="_blank"
+               rel="noopener noreferrer"
+               aria-label="Download Chronotile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 4v12"/>
+                <path d="m6 12 6 6 6-6"/>
+                <path d="M5 20h14"/>
+              </svg>
+              <span class="download-label" id="dl-label">Download</span>
+            </a>
+            <button class="download-caret"
+                    id="dl-caret"
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded="false"
+                    aria-controls="dl-menu"
+                    aria-label="Choose another platform or format">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+            </button>
+
+            <div class="download-menu"
+                 id="dl-menu"
+                 role="menu"
+                 aria-label="Download options"
+                 hidden>
+              <div class="download-menu-group" role="none">
+                <div class="download-menu-label" role="none">macOS</div>
+                <a role="menuitem" tabindex="-1"
+                   data-os="macos" data-fmt="dmg"
+                   href="https://github.com/xterr/chronotile/releases/latest"
+                   target="_blank" rel="noopener noreferrer">
+                  Universal <span class="fmt">.dmg</span>
+                </a>
+              </div>
+
+              <div class="download-menu-group" role="none">
+                <div class="download-menu-label" role="none">Windows</div>
+                <a role="menuitem" tabindex="-1"
+                   data-os="windows" data-fmt="exe"
+                   href="https://github.com/xterr/chronotile/releases/latest"
+                   target="_blank" rel="noopener noreferrer">
+                  Installer <span class="fmt">.exe</span>
+                </a>
+                <a role="menuitem" tabindex="-1"
+                   data-os="windows" data-fmt="msi"
+                   href="https://github.com/xterr/chronotile/releases/latest"
+                   target="_blank" rel="noopener noreferrer">
+                  MSI <span class="fmt">.msi</span>
+                </a>
+              </div>
+
+              <div class="download-menu-group" role="none">
+                <div class="download-menu-label" role="none">Linux</div>
+                <a role="menuitem" tabindex="-1"
+                   data-os="linux" data-fmt="appimage"
+                   href="https://github.com/xterr/chronotile/releases/latest"
+                   target="_blank" rel="noopener noreferrer">
+                  AppImage <span class="fmt">.AppImage</span>
+                </a>
+                <a role="menuitem" tabindex="-1"
+                   data-os="linux" data-fmt="deb"
+                   href="https://github.com/xterr/chronotile/releases/latest"
+                   target="_blank" rel="noopener noreferrer">
+                  Debian <span class="fmt">.deb</span>
+                </a>
+                <a role="menuitem" tabindex="-1"
+                   data-os="linux" data-fmt="rpm"
+                   href="https://github.com/xterr/chronotile/releases/latest"
+                   target="_blank" rel="noopener noreferrer">
+                  Red Hat <span class="fmt">.rpm</span>
+                </a>
+              </div>
+
+              <div class="download-menu-footer" role="none">
+                <a role="menuitem" tabindex="-1"
+                   href="https://github.com/xterr/chronotile/releases"
+                   target="_blank" rel="noopener noreferrer">
+                  All releases →
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <a class="btn btn-secondary" href="https://github.com/xterr/chronotile" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.93c.58.1.79-.25.79-.55v-2.02c-3.2.7-3.87-1.37-3.87-1.37-.52-1.34-1.28-1.7-1.28-1.7-1.04-.72.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.41-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+
+        <!-- version + format line — populated once the API resolves -->
+        <div class="download-meta" id="dl-meta" hidden></div>
+
+        <!-- macOS gatekeeper footnote — shown only for detected macOS users -->
+        <p class="dl-note" id="dl-note" hidden>
+          Unsigned build — right-click the app and choose <kbd>Open</kbd> on first launch.
+        </p>
+
+        <div class="shot-wrap">
+          <div class="shot">
+            <div class="shot-bar" aria-hidden="true">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <img
+              src="screenshot.png"
+              alt="Chronotile dashboard: stat cards, daily cost area chart, daily token bar chart, and a 12-month contribution-style heatmap."
+              width="1440" height="940"
+              loading="eager" decoding="async" fetchpriority="high"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FEATURES ============ -->
+    <section class="features" id="features">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">Features</span>
+          <h2>Everything opencode already knows about your work.</h2>
+          <p>Just made legible. Filter by project, pick a range, drill into any session.</p>
+        </div>
+
+        <div class="feature-grid">
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15V9"/><path d="M11 15V6"/><path d="M15 15v-4"/><path d="M19 15V8"/></svg>
+            </div>
+            <h3>Every stat that matters</h3>
+            <p>Spend, tokens (including reasoning and cache), models, agents, tools, projects, sessions, and errors — filterable by project and time range.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-3 8h5l-3 12 9-14h-6l3-6H13Z"/></svg>
+            </div>
+            <h3>Instant on multi-GB databases</h3>
+            <p>An incremental rollup cache answers every query in milliseconds, no matter how large your history grows.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>
+            </div>
+            <h3>Local &amp; read-only</h3>
+            <p>Your opencode databases are opened read-only. Nothing is modified, nothing leaves your machine.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><circle cx="3.5" cy="6" r="1.5"/><circle cx="3.5" cy="12" r="1.5"/><circle cx="3.5" cy="18" r="1.5"/></svg>
+            </div>
+            <h3>Session transcripts</h3>
+            <p>Drill into any session: messages, tool calls with durations, reasoning, file patches, and errors.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/><rect x="17" y="3" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="3" y="17" width="4" height="4" rx="1"/><rect x="10" y="17" width="4" height="4" rx="1"/><rect x="17" y="17" width="4" height="4" rx="1"/></svg>
+            </div>
+            <h3>GitHub-style heatmap</h3>
+            <p>A 12-month calendar of daily spend or token intensity — the whole year at a glance.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+            </div>
+            <h3>Multiple databases</h3>
+            <p>Auto-detects the default opencode DB and lets you register any number more — e.g. per-profile databases from <a href="https://xterr.github.io/ocp/" target="_blank" rel="noopener noreferrer">ocp</a>.</p>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ HOW IT WORKS ============ -->
+    <section class="how" id="how-it-works">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">How it works</span>
+          <h2>A read-only mirror, not a live query.</h2>
+          <p>The dashboard never touches your opencode database at query time. That's why it stays fast.</p>
+        </div>
+
+        <ol class="steps">
+          <li class="step">
+            <div class="step-num">01 — Ingest</div>
+            <h3>Rust engine mirrors opencode</h3>
+            <p>A Rust ingest engine opens each opencode SQLite database <strong>read-only</strong> and mirrors it into a compact local rollup cache — roughly <code>15 MB</code> per <code>10 GB</code> of sources.</p>
+          </li>
+
+          <li class="step">
+            <div class="step-num">02 — Incremental</div>
+            <h3>Indexed range scans, not full rescans</h3>
+            <p>Every cycle is an indexed range scan past a stored watermark. In-flight messages wait until their cost and tokens are final. Refreshed every <code>60 s</code>.</p>
+          </li>
+
+          <li class="step">
+            <div class="step-num">03 — Query</div>
+            <h3>Dashboard reads from the cache</h3>
+            <p>The UI never queries opencode directly — it reads only from the local rollup. Instant, even alongside a running opencode.</p>
+          </li>
+        </ol>
+
+        <div class="stack-line">
+          <span>Built with</span> &nbsp;·&nbsp; Tauri&nbsp;2 &nbsp;·&nbsp; Rust &nbsp;·&nbsp; React &nbsp;·&nbsp; shadcn/ui
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PRIVACY STRIP ============ -->
+    <section class="privacy" aria-label="Privacy">
+      <div class="container">
+        <p>
+          Everything is <strong>local</strong>. opencode databases are opened <strong>read-only</strong>. Chronotile writes only to its own app directory. No telemetry, no network calls, no accounts.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="logo.svg" alt="" aria-hidden="true" />
+        <span>Copyright © <span id="footer-year">2026</span> · Powered by <a href="https://xterr.design" target="_blank" rel="noopener noreferrer">Xterr Design</a></span>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/xterr/chronotile" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/xterr/chronotile/issues" target="_blank" rel="noopener noreferrer">Report an issue</a>
+        <a href="https://opencode.ai" target="_blank" rel="noopener noreferrer">opencode</a>
+        <a href="https://xterr.github.io/ocp/" target="_blank" rel="noopener noreferrer">ocp</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      'use strict';
+
+      var RELEASES_URL       = 'https://github.com/xterr/chronotile/releases';
+      var RELEASES_LATEST    = 'https://github.com/xterr/chronotile/releases/latest';
+      var API_LATEST         = 'https://api.github.com/repos/xterr/chronotile/releases/latest';
+
+      // ---- footer year: always current, no innerHTML ----
+      var yearEl = document.getElementById('footer-year');
+      if (yearEl) yearEl.textContent = String(new Date().getFullYear());
+
+      // ---- nav: backdrop blur on scroll ----
+      var nav = document.getElementById('nav');
+      var onScroll = function () {
+        if (window.scrollY > 8) nav.classList.add('is-scrolled');
+        else nav.classList.remove('is-scrolled');
+      };
+      onScroll();
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      // ---- OS detection ----
+      // Prefer the modern userAgentData API; fall back to platform / userAgent.
+      // Returns 'macos' | 'windows' | 'linux' | null (unknown).
+      function detectOS() {
+        try {
+          var d = navigator.userAgentData;
+          if (d && typeof d.platform === 'string' && d.platform) {
+            var p = d.platform.toLowerCase();
+            if (p.indexOf('mac') !== -1) return 'macos';
+            if (p.indexOf('win') !== -1) return 'windows';
+            if (p.indexOf('linux') !== -1 || p.indexOf('chromium os') !== -1 || p.indexOf('cros') !== -1) return 'linux';
+          }
+        } catch (_) { /* ignore */ }
+
+        var plat = (navigator.platform || '').toLowerCase();
+        var ua   = (navigator.userAgent || '').toLowerCase();
+
+        if (/mac|iphone|ipad|ipod/.test(plat) || ua.indexOf('mac os x') !== -1 || ua.indexOf('macintosh') !== -1) return 'macos';
+        if (/win/.test(plat) || ua.indexOf('windows') !== -1) return 'windows';
+        if (/linux|x11|cros/.test(plat) || ua.indexOf('linux') !== -1 || ua.indexOf('cros') !== -1) return 'linux';
+        return null;
+      }
+
+      // ---- pretty labels per OS (used in the main button) ----
+      var OS_LABEL = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
+
+      // ---- match a release asset by filename suffix ----
+      // We deliberately match by suffix (never by version) so future releases
+      // that follow the same naming keep working with no code changes.
+      function matchAsset(assets, suffix) {
+        if (!assets || !assets.length) return null;
+        var s = suffix.toLowerCase();
+        for (var i = 0; i < assets.length; i++) {
+          var name = (assets[i] && assets[i].name) || '';
+          if (name.toLowerCase().indexOf(s, name.length - s.length) !== -1) {
+            return assets[i];
+          }
+        }
+        return null;
+      }
+
+      // ---- resolve the preferred (default) asset for a given OS ----
+      // macOS   → .dmg
+      // windows → -setup.exe (installer, matches VS Code / Discord defaults)
+      // linux   → .AppImage
+      function preferredAssetForOS(assets, os) {
+        if (os === 'macos')   return matchAsset(assets, '_macos_universal.dmg');
+        if (os === 'windows') return matchAsset(assets, '_windows_x64-setup.exe');
+        if (os === 'linux')   return matchAsset(assets, '_linux_x86_64.AppImage');
+        return null;
+      }
+
+      // ---- pretty format label for the version-line under the button ----
+      function fmtFor(os) {
+        if (os === 'macos')   return 'universal .dmg';
+        if (os === 'windows') return '.exe installer';
+        if (os === 'linux')   return '.AppImage';
+        return '';
+      }
+
+      // ---- element refs ----
+      var download      = document.getElementById('download');
+      var main          = document.getElementById('dl-main');
+      var label         = document.getElementById('dl-label');
+      var meta          = document.getElementById('dl-meta');
+      var note          = document.getElementById('dl-note');
+      var caret         = document.getElementById('dl-caret');
+      var menu          = document.getElementById('dl-menu');
+      var menuItems     = menu.querySelectorAll('a[role="menuitem"][data-os]');
+
+      // Fixed suffix map — used to wire menu item hrefs from the API response.
+      var MENU_SUFFIX = {
+        'macos|dmg':      '_macos_universal.dmg',
+        'windows|exe':    '_windows_x64-setup.exe',
+        'windows|msi':    '_windows_x64.msi',
+        'linux|appimage': '_linux_x86_64.AppImage',
+        'linux|deb':      '_linux_amd64.deb',
+        'linux|rpm':      '_linux_x86_64.rpm'
+      };
+
+      // ---- update main CTA (label + href) for detected OS ----
+      var detectedOS = detectOS();
+
+      function setMainCTA(os, href) {
+        if (os && OS_LABEL[os]) {
+          label.textContent = 'Download for ' + OS_LABEL[os];
+          main.setAttribute('aria-label', 'Download Chronotile for ' + OS_LABEL[os]);
+        } else {
+          label.textContent = 'Download';
+          main.setAttribute('aria-label', 'Download Chronotile');
+        }
+        main.href = href;
+      }
+
+      // Static-first render: match the detected OS to the generic latest-release
+      // page so the button is never dead even before the API responds.
+      setMainCTA(detectedOS, RELEASES_LATEST);
+      if (detectedOS === 'macos') {
+        note.hidden = false;
+      }
+
+      // ---- fetch release data (silent on any failure) ----
+      function loadReleases() {
+        if (typeof fetch !== 'function') return; // very old browser: keep static fallback
+        // If the browser is confident the network is down, don't even try —
+        // this avoids one browser-level "Failed to load resource" line in the
+        // console for the common offline case.
+        if (navigator.onLine === false) return;
+
+        var opts = {
+          headers: { 'Accept': 'application/vnd.github+json' },
+          // never let the browser cache a stale response for the lifetime
+          // of the tab, but don't hard-fail if caches are disabled
+          cache: 'no-store'
+        };
+
+        // Promise chain wrapped in try/catch to swallow both synchronous
+        // throws and asynchronous rejections. The static markup already
+        // points at the /releases/latest page, so nothing is ever broken.
+        try {
+          fetch(API_LATEST, opts)
+            .then(function (r) {
+              if (!r || !r.ok) throw new Error('bad response');
+              return r.json();
+            })
+            .then(function (data) {
+              if (!data || !data.assets || !Array.isArray(data.assets)) return;
+              applyRelease(data);
+            })
+            .catch(function () { /* silent — static fallback is already live */ });
+        } catch (_) { /* silent */ }
+      }
+
+      function applyRelease(data) {
+        var version = (typeof data.tag_name === 'string' && data.tag_name) || '';
+        var assets  = data.assets;
+
+        // Wire every menu item's href to the actual asset URL. If the asset
+        // for a specific format isn't present in this release, keep that
+        // item's href on the generic releases-latest URL (already set).
+        var i, item, key, suffix, asset;
+        for (i = 0; i < menuItems.length; i++) {
+          item = menuItems[i];
+          key = item.getAttribute('data-os') + '|' + item.getAttribute('data-fmt');
+          suffix = MENU_SUFFIX[key];
+          if (!suffix) continue;
+          asset = matchAsset(assets, suffix);
+          if (asset && typeof asset.browser_download_url === 'string') {
+            item.href = asset.browser_download_url;
+          }
+        }
+
+        // Main CTA — point at the preferred asset for the detected OS.
+        if (detectedOS) {
+          var preferred = preferredAssetForOS(assets, detectedOS);
+          if (preferred && typeof preferred.browser_download_url === 'string') {
+            setMainCTA(detectedOS, preferred.browser_download_url);
+          }
+        }
+
+        // Meta line: "v0.1.1 · universal .dmg" (or version alone if OS unknown)
+        // Build with textContent — never with innerHTML — so any API string
+        // is treated as literal text.
+        while (meta.firstChild) meta.removeChild(meta.firstChild);
+
+        var versionText = version ? ('v' + version.replace(/^v/, '')) : '';
+        if (versionText) {
+          var vSpan = document.createElement('span');
+          vSpan.className = 'ver';
+          vSpan.textContent = versionText;
+          meta.appendChild(vSpan);
+        }
+
+        var fmtText = fmtFor(detectedOS);
+        if (versionText && fmtText) {
+          var sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.setAttribute('aria-hidden', 'true');
+          sep.textContent = '·';
+          meta.appendChild(sep);
+        }
+        if (fmtText) {
+          var fSpan = document.createElement('span');
+          fSpan.className = 'fmt';
+          fSpan.textContent = fmtText;
+          meta.appendChild(fSpan);
+        }
+
+        if (meta.firstChild) meta.hidden = false;
+      }
+
+      loadReleases();
+
+      // ---- dropdown: click / outside / Escape ----
+      function isOpen() { return download.classList.contains('is-open'); }
+
+      function openMenu() {
+        if (isOpen()) return;
+        download.classList.add('is-open');
+        caret.setAttribute('aria-expanded', 'true');
+        menu.hidden = false;
+        // roving tabindex on first item so keyboard users can Tab into it
+        var first = menu.querySelector('a[role="menuitem"]');
+        if (first) first.setAttribute('tabindex', '0');
+      }
+
+      function closeMenu(returnFocus) {
+        if (!isOpen()) return;
+        download.classList.remove('is-open');
+        caret.setAttribute('aria-expanded', 'false');
+        // wait for the CSS transition before hiding to keep the fade smooth
+        setTimeout(function () {
+          if (!download.classList.contains('is-open')) menu.hidden = true;
+        }, 160);
+        var items = menu.querySelectorAll('a[role="menuitem"]');
+        for (var j = 0; j < items.length; j++) items[j].setAttribute('tabindex', '-1');
+        if (returnFocus) caret.focus();
+      }
+
+      caret.addEventListener('click', function (e) {
+        e.preventDefault();
+        // stop propagation so the document-level outside-click handler
+        // never sees this event and immediately closes what we just opened
+        e.stopPropagation();
+        if (isOpen()) closeMenu(false); else openMenu();
+      });
+
+      // click outside → close
+      document.addEventListener('click', function (e) {
+        if (!isOpen()) return;
+        var t = e.target;
+        if (t && (t === download || download.contains(t))) return;
+        closeMenu(false);
+      });
+
+      // Escape → close and return focus to caret
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && isOpen()) {
+          e.preventDefault();
+          closeMenu(true);
+        }
+      });
+
+      // clicking a menu item follows the link and also closes the menu
+      var allItems = menu.querySelectorAll('a[role="menuitem"]');
+      for (var k = 0; k < allItems.length; k++) {
+        allItems[k].addEventListener('click', function () {
+          // let the browser navigate (target=_blank), then close
+          closeMenu(false);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
