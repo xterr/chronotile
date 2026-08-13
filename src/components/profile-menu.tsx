@@ -14,6 +14,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useGlobalLoading } from "@/hooks/use-global-loading"
 import { formatBytes } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
@@ -50,11 +55,12 @@ export function ProfileMenu() {
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
         render={
           <Button variant="outline" size="sm">
-            {busy ? <LoaderCircle className="animate-spin" /> : <Database />}
+            <Database />
             {active?.name ?? "No database"}
           </Button>
         }
@@ -105,10 +111,6 @@ export function ProfileMenu() {
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => void refreshData()}>
-          <RefreshCw />
-          Refresh data
-        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void pickDatabase()}>
           <Plus />
           Add database…
@@ -122,6 +124,27 @@ export function ProfileMenu() {
           <div className="px-2 py-1.5 text-xs text-destructive">{error}</div>
         )}
       </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Refresh data"
+              disabled={busy}
+              onClick={() => void refreshData()}
+            >
+              {busy ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <RefreshCw />
+              )}
+            </Button>
+          }
+        />
+        <TooltipContent>Refresh data</TooltipContent>
+      </Tooltip>
+    </>
   )
 }
