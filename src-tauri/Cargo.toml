@@ -28,3 +28,7 @@ dirs = "6.0.0"
 tauri-plugin-dialog = "2.7.2"
 chrono = "0.4.45"
 tokio = { version = "1.53.1", features = ["sync", "time"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

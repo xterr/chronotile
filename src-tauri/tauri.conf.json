@@ -38,5 +38,16 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1NEZGNkJDMUQ5RTMwOTEKUldTUk1KNGR2UFpQZFk5TzNRL0h3OFJyZ0h4QjVJeUk1WE8yYy9FOCtEemtEWklabm5JU2NndGsK",
+      "endpoints": [
+        "https://github.com/xterr/chronotile/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
