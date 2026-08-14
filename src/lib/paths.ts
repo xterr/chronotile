@@ -19,6 +19,10 @@ export function projectDisplayName(name: string, worktree: string): string {
   return basename(worktree)
 }
 
+export function isDirectoryProject(projectId: string): boolean {
+  return projectId === "global" || projectId.startsWith("dir:")
+}
+
 function looksLikePath(value: string): boolean {
   return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)
 }

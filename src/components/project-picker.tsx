@@ -11,7 +11,8 @@ import {
   ComboboxTrigger,
   ComboboxValue,
 } from "@/components/ui/combobox"
-import { projectDisplayName } from "@/lib/paths"
+import { ProjectKindIcon } from "@/components/project-kind-icon"
+import { isDirectoryProject, projectDisplayName } from "@/lib/paths"
 import { useDashboard } from "@/state/dashboard-context"
 
 interface ProjectEntry {
@@ -30,7 +31,7 @@ export function ProjectPicker() {
         label: projectDisplayName(option.name, option.worktree),
       })),
     ],
-    [projectOptions],
+    [projectOptions]
   )
 
   const value = items.find((item) => item.id === selectedProject) ?? items[0]
@@ -53,16 +54,26 @@ export function ProjectPicker() {
           />
         }
       >
-        <span className="truncate">
-          <ComboboxValue />
+        <span className="flex min-w-0 items-center gap-1.5">
+          {value.id !== null && (
+            <ProjectKindIcon directory={isDirectoryProject(value.id)} />
+          )}
+          <span className="truncate">
+            <ComboboxValue />
+          </span>
         </span>
       </ComboboxTrigger>
-      <ComboboxContent className="w-auto min-w-(--anchor-width) max-w-96">
+      <ComboboxContent className="w-auto max-w-96 min-w-(--anchor-width)">
         <ComboboxInput showTrigger={false} placeholder="Search projects…" />
         <ComboboxEmpty>No projects found.</ComboboxEmpty>
         <ComboboxList>
           {(item: ProjectEntry) => (
             <ComboboxItem key={item.id ?? "__all__"} value={item}>
+              {item.id === null ? (
+                <span aria-hidden className="size-4 shrink-0" />
+              ) : (
+                <ProjectKindIcon directory={isDirectoryProject(item.id)} />
+              )}
               <span className="whitespace-nowrap">{item.label}</span>
             </ComboboxItem>
           )}

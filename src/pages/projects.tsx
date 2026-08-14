@@ -33,7 +33,8 @@ import {
 import { useQuery } from "@/hooks/use-query"
 import { api, type ProjectStat } from "@/lib/api"
 import { chartColor, formatCost, formatCount, formatTokens } from "@/lib/format"
-import { basename, projectDisplayName } from "@/lib/paths"
+import { ProjectKindIcon } from "@/components/project-kind-icon"
+import { basename, isDirectoryProject, projectDisplayName } from "@/lib/paths"
 import { useDashboard } from "@/state/dashboard-context"
 
 function projectLabel(project: ProjectStat): string {
@@ -53,7 +54,11 @@ function totalTokens(project: ProjectStat): number {
 export function ProjectsPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
-  const projects = useQuery(() => api.projectStats(rangeArgs), [rangeArgs], enabled)
+  const projects = useQuery(
+    () => api.projectStats(rangeArgs),
+    [rangeArgs],
+    enabled
+  )
 
   const rows = useMemo(() => projects.data ?? [], [projects.data])
   const { config, data } = useMemo(() => {
@@ -123,7 +128,12 @@ export function ProjectsPage() {
               {rows.map((project) => (
                 <TableRow key={project.projectId}>
                   <TableCell className="font-medium">
-                    {projectLabel(project)}
+                    <div className="flex items-center gap-1.5">
+                      <ProjectKindIcon
+                        directory={isDirectoryProject(project.projectId)}
+                      />
+                      {projectLabel(project)}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <div className="flex items-center gap-1">
