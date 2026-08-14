@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.1] - 2026-08-14
+
+### Features
+
+- Distinguish git and directory projects with icons
+
+### Miscellaneous
+
+- Release 0.2.0
+
 ## [0.2.0] - 2026-08-13
 
 ### Features
