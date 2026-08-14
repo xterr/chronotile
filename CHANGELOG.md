@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.0] - 2026-08-13
+
+### Features
+
+- Add github pages landing page
+
+### Miscellaneous
+
+- Release 0.1.1
+- Add github pages deploy workflow
+
 ## [0.1.1] - 2026-08-13
 
 ### Features
