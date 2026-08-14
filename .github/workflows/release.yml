@@ -28,6 +28,7 @@ jobs:
             target: ""
     env:
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +46,13 @@ jobs:
           rm -f src-tauri/Cargo.toml.bak
           awk -v ver="$VERSION" 'f && /^version = /{sub(/"[^"]*"/, "\"" ver "\""); f=0} /^name = "app"$/{f=1} 1' src-tauri/Cargo.lock > Cargo.lock.tmp
           mv Cargo.lock.tmp src-tauri/Cargo.lock
+
+      - name: Enable updater artifacts
+        if: env.HAS_UPDATER_KEY == 'true'
+        shell: bash
+        run: |
+          jq '.bundle.createUpdaterArtifacts = true' src-tauri/tauri.conf.json > tauri.conf.json.tmp
+          mv tauri.conf.json.tmp src-tauri/tauri.conf.json
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -102,6 +110,8 @@ jobs:
           SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
           SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if [ "${{ matrix.platform }}" = "macos" ] && [ "$HAS_APPLE_CERT" = "true" ]; then
             export APPLE_SIGNING_IDENTITY="$CERT_ID"
@@ -121,12 +131,24 @@ jobs:
             macos)
               cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg \
                 "dist-artifacts/Chronotile_${VERSION}_macos_universal.dmg"
+              if [ "$HAS_UPDATER_KEY" = "true" ]; then
+                cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz \
+                  "dist-artifacts/Chronotile_${VERSION}_macos_universal.app.tar.gz"
+                cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig \
+                  "dist-artifacts/Chronotile_${VERSION}_macos_universal.app.tar.gz.sig"
+              fi
               ;;
             windows)
               cp src-tauri/target/release/bundle/nsis/*-setup.exe \
                 "dist-artifacts/Chronotile_${VERSION}_windows_x64-setup.exe"
               cp src-tauri/target/release/bundle/msi/*.msi \
                 "dist-artifacts/Chronotile_${VERSION}_windows_x64.msi"
+              if [ "$HAS_UPDATER_KEY" = "true" ]; then
+                cp src-tauri/target/release/bundle/nsis/*-setup.exe.sig \
+                  "dist-artifacts/Chronotile_${VERSION}_windows_x64-setup.exe.sig"
+                cp src-tauri/target/release/bundle/msi/*.msi.sig \
+                  "dist-artifacts/Chronotile_${VERSION}_windows_x64.msi.sig"
+              fi
               ;;
             linux)
               cp src-tauri/target/release/bundle/deb/*.deb \
@@ -135,6 +157,10 @@ jobs:
                 "dist-artifacts/Chronotile_${VERSION}_linux_x86_64.rpm"
               cp src-tauri/target/release/bundle/appimage/*.AppImage \
                 "dist-artifacts/Chronotile_${VERSION}_linux_x86_64.AppImage"
+              if [ "$HAS_UPDATER_KEY" = "true" ]; then
+                cp src-tauri/target/release/bundle/appimage/*.AppImage.sig \
+                  "dist-artifacts/Chronotile_${VERSION}_linux_x86_64.AppImage.sig"
+              fi
               ;;
           esac
           ls -la dist-artifacts
@@ -185,6 +211,54 @@ jobs:
               --verify-tag \
               dist-artifacts/*
           fi
+
+      - name: Generate update manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
+          MAC_SIG="dist-artifacts/Chronotile_${VERSION}_macos_universal.app.tar.gz.sig"
+          NSIS_SIG="dist-artifacts/Chronotile_${VERSION}_windows_x64-setup.exe.sig"
+          MSI_SIG="dist-artifacts/Chronotile_${VERSION}_windows_x64.msi.sig"
+          APPIMAGE_SIG="dist-artifacts/Chronotile_${VERSION}_linux_x86_64.AppImage.sig"
+          if ! ls dist-artifacts/*.sig >/dev/null 2>&1; then
+            echo "No updater signatures found - skipping latest.json (TAURI_SIGNING_PRIVATE_KEY not configured)"
+            exit 0
+          fi
+          for sig in "$MAC_SIG" "$NSIS_SIG" "$MSI_SIG" "$APPIMAGE_SIG"; do
+            if [ ! -f "$sig" ]; then
+              echo "Missing $sig - refusing to publish a partial update manifest" >&2
+              exit 1
+            fi
+          done
+          jq -n \
+            --arg version "$VERSION" \
+            --rawfile notes RELEASE_NOTES.md \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg mac_sig "$(cat "$MAC_SIG")" \
+            --arg nsis_sig "$(cat "$NSIS_SIG")" \
+            --arg msi_sig "$(cat "$MSI_SIG")" \
+            --arg appimage_sig "$(cat "$APPIMAGE_SIG")" \
+            --arg mac_url "${BASE_URL}/Chronotile_${VERSION}_macos_universal.app.tar.gz" \
+            --arg nsis_url "${BASE_URL}/Chronotile_${VERSION}_windows_x64-setup.exe" \
+            --arg msi_url "${BASE_URL}/Chronotile_${VERSION}_windows_x64.msi" \
+            --arg appimage_url "${BASE_URL}/Chronotile_${VERSION}_linux_x86_64.AppImage" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $mac_sig, url: $mac_url },
+                "darwin-x86_64": { signature: $mac_sig, url: $mac_url },
+                "windows-x86_64-nsis": { signature: $nsis_sig, url: $nsis_url },
+                "windows-x86_64-msi": { signature: $msi_sig, url: $msi_url },
+                "windows-x86_64": { signature: $nsis_sig, url: $nsis_url },
+                "linux-x86_64": { signature: $appimage_sig, url: $appimage_url }
+              }
+            }' > latest.json
+          cat latest.json
+          gh release upload "${VERSION}" latest.json --clobber
 
   sync:
     name: Sync version and changelog
