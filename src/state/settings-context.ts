@@ -29,7 +29,7 @@ export function useSettings(): SettingsState {
   return ctx
 }
 
-export const SETTINGS_STORAGE_KEY = "opencode-stats-settings"
+export const SETTINGS_STORAGE_KEY = "chronotile-settings"
 
 export function loadSettings(): Settings {
   try {
