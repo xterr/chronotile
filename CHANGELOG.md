@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.0] - 2026-08-14
+
+### Features
+
+- Add self-update plumbing to the tauri backend
+- Add updater and process plugin js dependencies
+- Add update check and install to settings
+- Publish signed updater artifacts and manifest on release
+
+### Documentation
+
+- Document in-app updates and signing secrets
+
+### Miscellaneous
+
+- Release 0.2.1
+
 ## [0.2.1] - 2026-08-14
 
 ### Features
