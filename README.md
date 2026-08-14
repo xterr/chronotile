@@ -52,6 +52,8 @@ for example per-profile databases created by [ocp](https://github.com/xterr/ocp)
   ranges, persisted across restarts.
 - **Multiple databases** — the default opencode database is detected automatically; add or remove
   others manually and switch with one click.
+- **In-app updates** — check for new releases in **Settings → Updates** and install them with one
+  click; the check only runs when you ask for it.
 - **Native polish** — light/dark/system theme with a matching macOS title bar, collapsible icon
   sidebar, and a fixed, no-overscroll shell.
 
@@ -136,7 +138,8 @@ application directory:
 └── cache.db        # derived rollup cache (safe to delete; rebuilds)
 ```
 
-No telemetry, no network calls, no accounts.
+No telemetry, no accounts. The only network request Chronotile ever makes is the release check
+behind the **Check for updates** button in **Settings → Updates** — nothing runs in the background.
 
 ## Development
 
@@ -178,6 +181,15 @@ Builds are [signed and notarized](https://v2.tauri.app/distribute/sign/macos/) a
 the repository has the following secrets (otherwise the DMG ships unsigned): `APPLE_CERTIFICATE`
 (base64 `.p12` with a *Developer ID Application* identity), `APPLE_CERTIFICATE_PASSWORD`, and — for
 notarization — `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID`.
+
+In-app updates ship alongside the release when the `TAURI_SIGNING_PRIVATE_KEY` secret (and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, if the key has one) is configured: the workflow then also
+builds [updater artifacts](https://v2.tauri.app/plugin/updater/) (`.app.tar.gz` plus `.sig`
+signatures for the NSIS, MSI, and AppImage bundles) and publishes a `latest.json` manifest that the
+app's **Settings → Updates** check reads. Generate the keypair once with
+`yarn tauri signer generate -w ~/.tauri/chronotile.key`; the matching public key lives in
+`tauri.conf.json`. Updates apply in place on macOS (universal), Windows (NSIS/MSI), and Linux
+(AppImage only — `.deb`/`.rpm` installs update through the package manager).
 
 ## Uninstall
 
