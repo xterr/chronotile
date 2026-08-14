@@ -1,6 +1,15 @@
 import { useState } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
-import { Moon, Plus, Sun, SunMoon, Trash2 } from "lucide-react"
+import {
+  Download,
+  Moon,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Sun,
+  SunMoon,
+  Trash2,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useTheme } from "@/components/theme-provider"
+import { useUpdater } from "@/hooks/use-updater"
 import { formatBytes, formatDate } from "@/lib/format"
 import { middleTruncatePath } from "@/lib/paths"
 import { useDashboard } from "@/state/dashboard-context"
@@ -93,7 +103,9 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium">Heatmap intensity metric</span>
+            <span className="text-sm font-medium">
+              Heatmap intensity metric
+            </span>
             <span className="text-xs text-muted-foreground">
               What the yearly calendar heatmap on the Overview page measures.
             </span>
@@ -159,7 +171,9 @@ export function SettingsPage() {
                     {profile.sessions.toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {profile.lastActivity ? formatDate(profile.lastActivity) : "—"}
+                    {profile.lastActivity
+                      ? formatDate(profile.lastActivity)
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     {!profile.isDefault && (
@@ -178,7 +192,11 @@ export function SettingsPage() {
             </TableBody>
           </Table>
           <div>
-            <Button variant="outline" size="sm" onClick={() => void pickDatabase()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void pickDatabase()}
+            >
               <Plus />
               Add database…
             </Button>
@@ -186,6 +204,120 @@ export function SettingsPage() {
           {error && <p className="text-xs text-destructive">{error}</p>}
         </CardContent>
       </Card>
+
+      <UpdatesCard />
     </div>
+  )
+}
+
+function UpdatesCard() {
+  const {
+    phase,
+    currentVersion,
+    updateInfo,
+    progress,
+    error,
+    checkForUpdates,
+    downloadAndInstall,
+    restart,
+  } = useUpdater()
+  const busy = phase === "checking" || phase === "downloading"
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Updates</CardTitle>
+        <CardDescription>
+          Chronotile only contacts GitHub when you check for updates.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="font-medium">Current version</span>
+            <Badge variant="secondary" className="font-mono tabular-nums">
+              {currentVersion ?? "unknown"}
+            </Badge>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || phase === "installed"}
+            onClick={checkForUpdates}
+          >
+            <RefreshCw
+              className={phase === "checking" ? "animate-spin" : undefined}
+            />
+            {phase === "checking" ? "Checking…" : "Check for updates"}
+          </Button>
+        </div>
+
+        {phase === "upToDate" && (
+          <p className="text-xs text-muted-foreground">
+            You're running the latest version.
+          </p>
+        )}
+
+        {(phase === "available" || phase === "downloading") && updateInfo && (
+          <div className="flex flex-col gap-3 rounded-md border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">
+                  Version {updateInfo.version} is available
+                </span>
+              </div>
+              {phase === "available" && (
+                <Button size="sm" onClick={downloadAndInstall}>
+                  <Download />
+                  Download & install
+                </Button>
+              )}
+            </div>
+            {updateInfo.notes && (
+              <pre className="max-h-40 overflow-auto text-xs whitespace-pre-wrap text-muted-foreground">
+                {updateInfo.notes}
+              </pre>
+            )}
+            {phase === "downloading" && (
+              <div className="flex items-center gap-3">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={
+                      progress === null
+                        ? "h-full w-1/3 animate-pulse rounded-full bg-primary"
+                        : "h-full rounded-full bg-primary transition-all"
+                    }
+                    style={
+                      progress === null
+                        ? undefined
+                        : { width: `${Math.round(progress * 100)}%` }
+                    }
+                  />
+                </div>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {progress === null
+                    ? "Downloading…"
+                    : `${Math.round(progress * 100)}%`}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {phase === "installed" && (
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+            <span className="text-sm font-medium">
+              Update installed. Restart to apply.
+            </span>
+            <Button size="sm" onClick={restart}>
+              <RotateCw />
+              Restart now
+            </Button>
+          </div>
+        )}
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
   )
 }
