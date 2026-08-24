@@ -25,8 +25,9 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { useQuery } from "@/hooks/use-query"
-import { api } from "@/lib/api"
+import { api, type RangeArgs } from "@/lib/api"
 import { formatCost, formatCount, formatTokens } from "@/lib/format"
+import { heatmapWindowStart } from "@/lib/heatmap"
 import { useDashboard, type RangePreset } from "@/state/dashboard-context"
 import { useSettings } from "@/state/settings-context"
 
@@ -51,11 +52,36 @@ const tokenConfig = {
 } satisfies ChartConfig
 
 export function OverviewPage() {
-  const { rangeArgs, activePath, range, anchor } = useDashboard()
+  const { rangeArgs, activePath, range, anchor, selectedProject, cacheStatus } =
+    useDashboard()
   const { settings } = useSettings()
   const enabled = activePath !== null
   const overview = useQuery(() => api.overview(rangeArgs), [rangeArgs], enabled)
   const daily = useQuery(() => api.dailySeries(rangeArgs), [rangeArgs], enabled)
+
+  // Quantising to the day holds the heatmap window still across the anchor bump
+  // that every range click triggers; the ingest epoch still refetches new data.
+  const dayAnchor = useMemo(() => {
+    const day = new Date(anchor)
+    day.setHours(0, 0, 0, 0)
+    return day.getTime()
+  }, [anchor])
+  const ingestEpoch = cacheStatus?.ingestEpoch ?? 0
+  const heatmapArgs = useMemo<RangeArgs>(() => {
+    const args: RangeArgs = {
+      dbPaths: activePath ? [activePath] : [],
+      from: heatmapWindowStart(dayAnchor).getTime(),
+    }
+    if (selectedProject) {
+      args.project = selectedProject
+    }
+    return args
+  }, [activePath, dayAnchor, selectedProject])
+  const heatmap = useQuery(
+    () => api.dailySeries(heatmapArgs),
+    [heatmapArgs, ingestEpoch],
+    enabled
+  )
 
   const data = overview.data
   const totalTokens = data
@@ -224,18 +250,20 @@ export function OverviewPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{RANGE_TITLES[range]}</CardTitle>
+          <CardTitle>Last 12 months</CardTitle>
           <CardDescription>
             Daily {settings.heatmapMetric === "cost" ? "spend" : "token"}{" "}
             intensity
+            {range === "all" ? "" : ` · ${RANGE_TITLES[range]} highlighted`}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <CalendarHeatmap
-            days={daily.data ?? []}
+            days={heatmap.data ?? []}
             metric={settings.heatmapMetric}
-            from={rangeArgs.from}
-            to={rangeArgs.to ?? anchor}
+            anchor={dayAnchor}
+            focusFrom={rangeArgs.from}
+            focusTo={rangeArgs.to}
           />
         </CardContent>
       </Card>

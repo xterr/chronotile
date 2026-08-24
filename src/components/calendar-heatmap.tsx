@@ -6,19 +6,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { formatCost, formatTokens } from "@/lib/format"
+import {
+  HEATMAP_WEEKS as WEEKS,
+  heatmapWindowStart,
+  isoDate,
+  startOfDay,
+} from "@/lib/heatmap"
 import type { DailyPoint } from "@/lib/api"
 
-const STRIP_MAX_DAYS = 31
-const LABEL_EVERY = 7
-
-function intensityClass(value: number, max: number): string {
-  if (value <= 0 || max <= 0) return "bg-muted"
-  const ratio = value / max
-  if (ratio < 0.25) return "bg-primary/25"
-  if (ratio < 0.5) return "bg-primary/45"
-  if (ratio < 0.75) return "bg-primary/70"
-  return "bg-primary"
-}
+const RAMP = ["bg-primary/25", "bg-primary/45", "bg-primary/70", "bg-primary"]
 
 export type HeatmapMetric = "cost" | "tokens"
 
@@ -37,132 +33,100 @@ function metricValue(
   )
 }
 
-function isoDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+// Quartile cut points over the active days only. A linear scale against the
+// maximum lets a single outlier day wash the rest of the year into one shade.
+function buildScale(values: number[]): number[] {
+  const sorted = values.filter((v) => v > 0).sort((a, b) => a - b)
+  if (sorted.length === 0) return []
+  const at = (quantile: number) =>
+    sorted[Math.min(sorted.length - 1, Math.floor(quantile * sorted.length))]
+  return [at(0.25), at(0.5), at(0.75)]
 }
 
-function startOfDay(ms: number): Date {
-  const date = new Date(ms)
-  date.setHours(0, 0, 0, 0)
-  return date
-}
-
-// Stepping a Date avoids the off-by-one that millisecond arithmetic produces
-// across daylight-saving boundaries.
-function daysBetween(start: Date, end: Date): number {
-  let count = 0
-  const probe = new Date(start)
-  while (probe <= end) {
-    count++
-    probe.setDate(probe.getDate() + 1)
+function intensityClass(value: number, scale: number[]): string {
+  if (value <= 0 || scale.length === 0) return "bg-muted/40"
+  for (let i = 0; i < scale.length; i++) {
+    if (value <= scale[i]) return RAMP[i]
   }
-  return count
+  return RAMP[RAMP.length - 1]
 }
 
 interface Cell {
   date: string
   point: DailyPoint | undefined
-  outside: boolean
+  future: boolean
+  dimmed: boolean
 }
 
 interface CalendarHeatmapProps {
   days: DailyPoint[]
   metric?: HeatmapMetric
-  from?: number
-  to: number
+  /** Last day of the 12-month window. */
+  anchor: number
+  /** Start of the highlighted range; earlier days dim. Omit to highlight all. */
+  focusFrom?: number
+  /** End of the highlighted range; later days dim. Omit to highlight all. */
+  focusTo?: number
 }
 
 export function CalendarHeatmap({
   days,
   metric = "cost",
-  from,
-  to,
+  anchor,
+  focusFrom,
+  focusTo,
 }: CalendarHeatmapProps) {
   const view = useMemo(() => {
     const byDate = new Map(days.map((d) => [d.date, d]))
-    const end = startOfDay(to)
+    const end = isoDate(startOfDay(anchor))
+    const focusStart =
+      focusFrom === undefined ? null : isoDate(startOfDay(focusFrom))
+    const focusEnd = focusTo === undefined ? null : isoDate(startOfDay(focusTo))
 
-    const earliest = days.length
-      ? days.reduce((a, b) => (a.date < b.date ? a : b)).date
-      : null
-    let start =
-      from === undefined
-        ? earliest
-          ? startOfDay(new Date(`${earliest}T00:00:00`).getTime())
-          : end
-        : startOfDay(from)
-    if (start > end) start = end
-
-    const max = Math.max(0, ...days.map((d) => metricValue(d, metric)))
-    const span = daysBetween(start, end)
-
-    if (span <= STRIP_MAX_DAYS) {
-      const cells: Cell[] = []
-      const labels: { index: number; label: string }[] = []
-      const cursor = new Date(start)
-      for (let i = 0; i < span; i++) {
-        const iso = isoDate(cursor)
-        cells.push({ date: iso, point: byDate.get(iso), outside: false })
-        if (i % LABEL_EVERY === 0) {
-          labels.push({
-            index: i,
-            label: cursor.toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            }),
-          })
-        }
-        cursor.setDate(cursor.getDate() + 1)
-      }
-      return { mode: "strip" as const, cells, columns: span, labels, max }
-    }
-
-    const gridStart = new Date(start)
-    gridStart.setDate(gridStart.getDate() - gridStart.getDay())
-    const gridEnd = new Date(end)
-    gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()))
-
-    const weeks = Math.ceil(daysBetween(gridStart, gridEnd) / 7)
-    const withYear = span > 365
     const cells: Cell[] = []
     const labels: { index: number; label: string }[] = []
-    const cursor = new Date(gridStart)
+    const values: number[] = []
+    const cursor = heatmapWindowStart(anchor)
     let lastMonth = -1
-    for (let week = 0; week < weeks; week++) {
+
+    for (let week = 0; week < WEEKS; week++) {
       for (let weekday = 0; weekday < 7; weekday++) {
-        const iso = isoDate(cursor)
-        const time = cursor.getTime()
+        const date = isoDate(cursor)
         if (weekday === 0 && cursor.getMonth() !== lastMonth) {
           lastMonth = cursor.getMonth()
           labels.push({
             index: week,
-            label: cursor.toLocaleDateString("en-US", {
-              month: "short",
-              ...(withYear ? { year: "2-digit" } : {}),
-            }),
+            label: cursor.toLocaleDateString("en-US", { month: "short" }),
           })
         }
+        const future = date > end
+        const point = byDate.get(date)
+        if (!future) values.push(metricValue(point, metric))
         cells.push({
-          date: iso,
-          point: byDate.get(iso),
-          outside: time > end.getTime() || time < start.getTime(),
+          date,
+          point,
+          future,
+          dimmed:
+            (focusStart !== null && date < focusStart) ||
+            (focusEnd !== null && date > focusEnd),
         })
         cursor.setDate(cursor.getDate() + 1)
       }
     }
-    return { mode: "calendar" as const, cells, columns: weeks, labels, max }
-  }, [days, metric, from, to])
 
-  const template = `repeat(${view.columns}, minmax(0.625rem, 1.25rem))`
+    return { cells, labels, scale: buildScale(values) }
+  }, [days, metric, anchor, focusFrom, focusTo])
+
+  const template = `repeat(${WEEKS}, minmax(0.625rem, 1fr))`
 
   return (
-    <div className="overflow-x-auto">
-      <div className="w-fit">
+    <div className="flex flex-col gap-2">
+      <div className="w-full">
         <div
           className="mb-1 grid text-[10px] whitespace-nowrap text-muted-foreground"
           style={{ gridTemplateColumns: template }}
         >
-          {Array.from({ length: view.columns }, (_, index) => (
+          {Array.from({ length: WEEKS }, (_, index) => (
             <span key={index}>
               {view.labels.find((l) => l.index === index)?.label ?? ""}
             </span>
@@ -171,19 +135,19 @@ export function CalendarHeatmap({
         <div
           className="grid grid-flow-col gap-0.5"
           style={{
-            gridTemplateRows: `repeat(${view.mode === "strip" ? 1 : 7}, minmax(0, 1fr))`,
+            gridTemplateRows: "repeat(7, minmax(0, 1fr))",
             gridTemplateColumns: template,
           }}
         >
           {view.cells.map((cell) =>
-            cell.outside ? (
+            cell.future ? (
               <div key={cell.date} className="aspect-square rounded-xs" />
             ) : (
               <Tooltip key={cell.date}>
                 <TooltipTrigger
                   render={
                     <div
-                      className={`aspect-square rounded-xs transition-transform duration-75 hover:z-10 hover:scale-150 hover:ring-1 hover:ring-foreground/40 ${intensityClass(metricValue(cell.point, metric), view.max)}`}
+                      className={`aspect-square rounded-xs transition-[transform,opacity] duration-75 hover:z-10 hover:scale-150 hover:opacity-100 hover:ring-1 hover:ring-foreground/40 ${intensityClass(metricValue(cell.point, metric), view.scale)} ${cell.dimmed ? "opacity-30" : ""}`}
                     />
                   }
                 />
@@ -207,6 +171,14 @@ export function CalendarHeatmap({
             )
           )}
         </div>
+      </div>
+      <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+        <span>Less</span>
+        <div className="size-2.5 rounded-xs bg-muted/40" />
+        {RAMP.map((tone) => (
+          <div key={tone} className={`size-2.5 rounded-xs ${tone}`} />
+        ))}
+        <span>More</span>
       </div>
     </div>
   )
