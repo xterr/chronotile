@@ -39,3 +39,4 @@ src-tauri/gen/schemas
 # Tooling state & test artifacts
 .omo/
 .playwright-mcp/
+.tmp/
