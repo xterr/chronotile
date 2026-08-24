@@ -1039,7 +1039,7 @@
         <div class="section-head">
           <span class="eyebrow">Features</span>
           <h2>Everything opencode already knows about your work.</h2>
-          <p>Just made legible. Nine pages, filterable by project and time range, down to a single session.</p>
+          <p>Just made legible. Eleven pages, filterable by project and time range, down to a single session.</p>
         </div>
 
         <div class="feature-grid">
@@ -1050,6 +1050,14 @@
             </div>
             <h3>Every stat that matters</h3>
             <p>Spend, tokens (including reasoning and cache), models, agents, tools, skills, projects, sessions, and errors — filterable by project and by 7d / 30d / 90d / MTD / all time.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 6.5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <h3>The cost opencode hides</h3>
+            <p>Subscription and OAuth-plan messages are stored as <code>$0</code> — on a real database, most of them. Chronotile prices their tokens from models.dev and shows reported and estimated side by side.</p>
           </article>
 
           <article class="feature">
@@ -1065,7 +1073,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>
             </div>
             <h3>Local &amp; read-only</h3>
-            <p>Your opencode databases are opened read-only — nothing is modified. No usage data ever leaves your machine; the only request the app makes is an update check<a class="fn" href="#privacy" aria-label="Footnote: about the update check">*</a>.</p>
+            <p>Your opencode databases are opened read-only — nothing is modified. No usage data ever leaves your machine; the app makes two requests, an update check and a public price list<a class="fn" href="#privacy" aria-label="Footnote: about the network requests">*</a>.</p>
           </article>
 
           <article class="feature">
@@ -1159,20 +1167,24 @@
     <section class="privacy" id="privacy" aria-label="Privacy">
       <div class="container">
         <p>
-          Everything is <strong>local</strong>. opencode databases are opened <strong>read-only</strong>. Chronotile writes only to its own app directory. No telemetry, no accounts, no network calls.<span class="fn" aria-hidden="true">*</span>
+          Everything is <strong>local</strong>. opencode databases are opened <strong>read-only</strong>. Chronotile writes only to its own app directory. No telemetry, no accounts, no analytics.<span class="fn" aria-hidden="true">*</span>
         </p>
 
         <ul class="privacy-fine">
           <li>
             <span class="marker" aria-hidden="true">*</span>
             <span>
-              <strong>“no network calls”</strong> — with one exception, and it is not your data.
-              Chronotile asks GitHub whether a newer release exists: it requests a single file,
-              <code>releases/latest/download/latest.json</code>, and sends nothing but the
-              request itself. No usage data, no identifiers, no analytics. It runs once at
-              launch — silent unless an update is waiting — and whenever you pick
-              <strong>Check for Updates…</strong> yourself. Switch the launch check off under
-              <strong>Settings → Preferences</strong> and the app makes no network calls at all.
+              <strong>“no analytics”</strong> — Chronotile makes exactly two network requests, and
+              neither one is your data. The first asks GitHub whether a newer release exists: a
+              single file, <code>releases/latest/download/latest.json</code>. The second downloads
+              a public price list from <a href="https://models.dev">models.dev</a> — the same
+              <code>api.json</code> anyone can open in a browser — so subscription usage, which
+              opencode records as <code>$0</code>, can still be costed. Both send nothing but the
+              request itself: no usage data, no identifiers, no analytics, and there is no server
+              to send them to. The update check runs once at launch, silent unless an update is
+              waiting; the price refresh runs in the background at most once a day. Switch both off
+              under <strong>Settings → Preferences</strong> and the app makes no network calls at
+              all — a price snapshot ships inside the binary, so cost still works offline.
             </span>
           </li>
           <li>

@@ -29,9 +29,12 @@ Chronotile turns it into a dashboard.
   tools, skills, projects, sessions, errors — all filterable by project and time range.
 - ⚡ **Instant on multi-gigabyte databases** — an incremental rollup cache answers every query in
   milliseconds, no matter how large your history grows.
+- 💸 **Cost you can actually see** — opencode only records a price for metered API traffic, so
+  subscription and OAuth-plan messages are stored as `$0`. Chronotile prices their tokens from
+  [models.dev](https://models.dev) and shows reported and estimated cost side by side.
 - 🔒 **Local and read-only** — your opencode databases are opened read-only, nothing is modified,
-  and no usage data ever leaves your machine. The one network request the app makes is an
-  optional [release check](#data--privacy).
+  and no usage data ever leaves your machine. The app makes two network requests, both optional
+  and neither carrying your data: a [release check and a pricing refresh](#data--privacy).
 
 Chronotile is a native desktop app (Tauri 2, Rust backend, React + shadcn/ui frontend). It
 auto-detects your default opencode database and lets you register any number of additional ones —
@@ -39,9 +42,18 @@ for example per-profile databases created by [ocp](https://github.com/xterr/ocp)
 
 ## Features
 
-- **Overview** — total cost, token breakdown, cache-hit rate, and a GitHub-style full-year
-  calendar heatmap of daily spend or token intensity, with the selected range highlighted and
-  the rest dimmed.
+- **Overview** — total cost, token breakdown, cache-hit rate, what prompt caching saved you, how
+  each figure compares with the previous period, and a GitHub-style full-year calendar heatmap of
+  daily spend or token intensity, with the selected range highlighted and the rest dimmed.
+- **Reported and estimated cost** — opencode writes `$0` for subscription and OAuth-plan traffic,
+  which on a real database is most of it. Token counts are always recorded, so cost is also derived
+  from models.dev rates. Recomputing metered messages this way reproduces opencode's own totals to
+  the cent, which is what makes the estimate comparable rather than a parallel invention. Switch
+  between **Estimated**, **Reported** and **Both** in Settings.
+- **Quota & burn rate** — rolling usage windows (5 h by default, matching Claude subscriptions and
+  settable for other plans), current burn rate in tokens and dollars, and where the window lands if
+  you keep going. opencode does not record plan limits, so the gauge is measured against your own
+  busiest window and says so.
 - **Per-model stats** — cost share, daily stacked trends, message/session counts, and median
   output tokens-per-second measured from your own traffic. Each row expands into its individual
   variants (reasoning effort and friends); the provider is shown as a `provider/model` label.
@@ -49,7 +61,11 @@ for example per-profile databases created by [ocp](https://github.com/xterr/ocp)
   included); per-tool call counts, error rates, and p50/p95 durations.
 - **Skills** — how often each skill is loaded, split between preloaded by a task and invoked
   directly, with the sessions, projects, and first/last use behind each one.
-- **Projects** — spend and activity per repository, including sessions from non-git directories.
+- **Projects & files** — spend and activity per repository, including sessions from non-git
+  directories, plus the individual files the agent read, edited and wrote most.
+- **Merged agent names** — opencode stores agents by display name with no id, so a rename splits
+  one agent across several rows. Spellings differing only by case, spacing or invisible characters
+  are folded together; genuinely different agents are never merged. Toggle it off in Settings.
 - **Session browser with transcripts** — expand any session into its subagent children, then read
   the conversation: messages, tool calls with durations, reasoning, file patches, and errors.
 - **Reliability** — error breakdown by type, aborted-message rate, compactions, and retries.
@@ -116,6 +132,7 @@ it into a compact local rollup cache, and the dashboard reads only from that:
 | opencode databases | wherever they live | opened **read-only**, WAL-safe alongside a running opencode |
 | rollup cache | `~/Library/Application Support/design.xterr.chronotile/cache.db` | day-grain star-schema facts; ~15 MB for 10 GB of sources |
 | registered sources | `.../design.xterr.chronotile/sources.json` | the manually added database paths |
+| model pricing | bundled in the binary, overridable at `.../pricing.json` | models.dev rates, applied when a query runs |
 | refresh | every 60 s + manual trigger | incremental: only new rows are read |
 
 The ingest is incremental by design: each cycle is an indexed range scan past a stored `rowid`
@@ -127,20 +144,26 @@ a pending set until their cost and tokens are final; a per-cycle sentinel detect
 versioned with forward-only migrations that run on startup, so upgrades are automatic — including
 migrations that require re-ingesting the sources.
 
+Prices are deliberately *not* baked into the facts. They live in their own table and are joined when
+a query runs, so correcting a rate or refreshing the catalog re-costs your entire history without
+re-reading a single source row — a few tens of milliseconds, no re-index.
+
 ## Pages
 
 | Page | What it shows |
 | --- | --- |
-| **Overview** | Stat cards, daily cost, daily token mix, full-year heatmap |
+| **Overview** | Stat cards with period-over-period change, cache savings, daily cost, daily token mix, full-year heatmap |
+| **Quota** | Rolling usage window, burn rate, projected end-of-window, recent windows |
 | **Activity** | Messages & sessions per day, working-hours punch card |
 | **Models** | Cost share donut, stacked daily cost, per-model table with p50 tok/s, expandable per variant |
 | **Agents** | The same breakdown, keyed by agent |
-| **Tools** | Call counts, error rates, p50/p95 durations per tool |
+| **Tools** | Call counts, error rates, p50/p95 durations, and calls repeated with identical arguments |
 | **Skills** | Loads per skill split into preloaded-by-task vs. invoked-directly, with sessions and projects |
 | **Projects** | Spend per repository, with per-directory attribution for non-git work |
-| **Sessions** | Filterable session tree with subagent children and full transcript drill-down |
-| **Reliability** | Errors by type, compactions, retries |
-| **Settings** | Theme, heatmap metric, data sources, updates, launch-check preference |
+| **Files** | The files touched most, split into reads, edits and writes |
+| **Sessions** | Median / p95 / peak session cost, plus a filterable session tree with subagent children and paged transcript drill-down |
+| **Reliability** | Errors by type *and message*, context-window pressure, compactions, retries |
+| **Settings** | Theme, cost basis, agent merging, quota window, data sources, model pricing, updates |
 
 ## Data & privacy
 
@@ -152,13 +175,31 @@ application directory:
 ~/.config|~/.local/share/design.xterr.chronotile/        # Linux
 %APPDATA%\design.xterr.chronotile\                       # Windows
 ├── sources.json    # registered database paths
+├── pricing.json    # refreshed models.dev rates (absent until you refresh; falls back to the bundled copy)
 └── cache.db        # derived rollup cache (safe to delete; rebuilds)
 ```
 
-No telemetry, no accounts. The only network request Chronotile ever makes is the release check —
-once at launch, and whenever you pick **Check for Updates…** from the app menu or **Settings →
-Updates**. The launch check is silent unless a new version exists, and can be turned off under
-**Settings → Preferences**. Nothing else ever leaves your machine.
+No telemetry, no accounts, no analytics. Chronotile makes exactly two network requests, both
+outbound-only, both optional, and neither carries anything about your usage:
+
+| Request | What it asks for | What it sends | When | Turn it off |
+| --- | --- | --- | --- | --- |
+| Release check | `releases/latest/download/latest.json` from GitHub | nothing but the request | once at launch, silent unless an update exists, plus **Check for Updates…** | **Settings → Preferences** |
+| Pricing refresh | `api.json` from [models.dev](https://models.dev) — a public price list | nothing but the request | in the background, at most once a day, plus **Refresh pricing** | **Settings → Preferences** |
+
+The pricing request deserves a note, because it is the one that touches cost. It downloads a public
+catalog of published model rates — the same file anyone can open in a browser. It does not upload
+your models, token counts, or spend, and there is no server to upload them to. A snapshot ships
+inside the binary, so cost is priced correctly on first run with no network at all; refreshing only
+keeps that snapshot from going stale. Turn both checks off and the app makes no network requests
+whatsoever.
+
+Rates are applied when a query runs rather than stored on your data, so refreshing pricing never
+re-reads or rewrites your history.
+
+Note that the rolling-window figures on the **Quota** page are built from per-message samples kept
+for 14 days. Everything older is served from the day-grain rollups, so deleting `cache.db` loses
+that recent detail until it rebuilds from the sources.
 
 ## Development
 
