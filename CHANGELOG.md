@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.1] - 2026-08-14
+
+### Miscellaneous
+
+- Release 0.3.0
+- Rename local storage key
+
 ## [0.3.0] - 2026-08-14
 
 ### Features
