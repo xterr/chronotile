@@ -5,7 +5,12 @@ import { ProfileMenu } from "@/components/profile-menu"
 import { ProjectPicker } from "@/components/project-picker"
 import { RangePicker } from "@/components/range-picker"
 import { Separator } from "@/components/ui/separator"
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { UpdatePrompt } from "@/components/update-prompt"
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ActivityPage } from "@/pages/activity"
 import { AgentsPage } from "@/pages/agents"
@@ -20,17 +25,18 @@ import { useDashboard } from "@/state/dashboard-context"
 import { DashboardProvider } from "@/state/dashboard"
 import { SettingsProvider } from "@/state/settings"
 
-const PAGES: Record<Page, { title: string; component: () => React.ReactNode }> = {
-  overview: { title: "Overview", component: OverviewPage },
-  activity: { title: "Activity", component: ActivityPage },
-  models: { title: "Models", component: ModelsPage },
-  agents: { title: "Agents", component: AgentsPage },
-  tools: { title: "Tools", component: ToolsPage },
-  projects: { title: "Projects", component: ProjectsPage },
-  sessions: { title: "Sessions", component: SessionsPage },
-  reliability: { title: "Reliability", component: ReliabilityPage },
-  settings: { title: "Settings", component: SettingsPage },
-}
+const PAGES: Record<Page, { title: string; component: () => React.ReactNode }> =
+  {
+    overview: { title: "Overview", component: OverviewPage },
+    activity: { title: "Activity", component: ActivityPage },
+    models: { title: "Models", component: ModelsPage },
+    agents: { title: "Agents", component: AgentsPage },
+    tools: { title: "Tools", component: ToolsPage },
+    projects: { title: "Projects", component: ProjectsPage },
+    sessions: { title: "Sessions", component: SessionsPage },
+    reliability: { title: "Reliability", component: ReliabilityPage },
+    settings: { title: "Settings", component: SettingsPage },
+  }
 
 function Shell() {
   const [page, setPage] = useState<Page>("overview")
@@ -70,7 +76,9 @@ function Shell() {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex h-full items-center justify-center">
-      <p className="max-w-sm text-center text-sm text-muted-foreground">{message}</p>
+      <p className="max-w-sm text-center text-sm text-muted-foreground">
+        {message}
+      </p>
     </div>
   )
 }
@@ -81,6 +89,7 @@ export function App() {
       <DashboardProvider>
         <TooltipProvider delay={100} closeDelay={0}>
           <Shell />
+          <UpdatePrompt />
         </TooltipProvider>
       </DashboardProvider>
     </SettingsProvider>

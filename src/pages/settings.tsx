@@ -122,6 +122,28 @@ export function SettingsPage() {
               <ToggleGroupItem value="tokens">Tokens</ToggleGroupItem>
             </ToggleGroup>
           </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">
+              Check for updates on launch
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Contacts GitHub once at startup and only interrupts you when a new
+              version exists.
+            </span>
+            <ToggleGroup
+              variant="outline"
+              size="sm"
+              value={[settings.checkUpdatesOnStartup ? "on" : "off"]}
+              onValueChange={(value: string[]) => {
+                const next = value[0]
+                if (next) update({ checkUpdatesOnStartup: next === "on" })
+              }}
+            >
+              <ToggleGroupItem value="on">On</ToggleGroupItem>
+              <ToggleGroupItem value="off">Off</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </CardContent>
       </Card>
 

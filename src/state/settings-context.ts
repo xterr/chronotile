@@ -8,12 +8,14 @@ export interface Settings {
   defaultRange: RangePreset
   heatmapMetric: HeatmapMetric
   activeDatabase: string | null
+  checkUpdatesOnStartup: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultRange: "30d",
   heatmapMetric: "cost",
   activeDatabase: null,
+  checkUpdatesOnStartup: true,
 }
 
 export interface SettingsState {

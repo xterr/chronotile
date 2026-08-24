@@ -52,8 +52,9 @@ for example per-profile databases created by [ocp](https://github.com/xterr/ocp)
   ranges, persisted across restarts.
 - **Multiple databases** — the default opencode database is detected automatically; add or remove
   others manually and switch with one click.
-- **In-app updates** — check for new releases in **Settings → Updates** and install them with one
-  click; the check only runs when you ask for it.
+- **In-app updates** — a silent check at launch prompts you only when a new version exists; trigger
+  it yourself from the app menu's **Check for Updates…** or **Settings → Updates**, and install with
+  one click. The launch check can be disabled in **Settings → Preferences**.
 - **Native polish** — light/dark/system theme with a matching macOS title bar, collapsible icon
   sidebar, and a fixed, no-overscroll shell.
 
@@ -140,8 +141,10 @@ application directory:
 └── cache.db        # derived rollup cache (safe to delete; rebuilds)
 ```
 
-No telemetry, no accounts. The only network request Chronotile ever makes is the release check
-behind the **Check for updates** button in **Settings → Updates** — nothing runs in the background.
+No telemetry, no accounts. The only network request Chronotile ever makes is the release check —
+once at launch, and whenever you pick **Check for Updates…** from the app menu or **Settings →
+Updates**. The launch check is silent unless a new version exists, and can be turned off under
+**Settings → Preferences**. Nothing else ever leaves your machine.
 
 ## Development
 

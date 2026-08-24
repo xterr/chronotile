@@ -21,6 +21,56 @@ struct AppState {
     cache: Arc<CacheManager>,
 }
 
+#[cfg(target_os = "macos")]
+const CHECK_UPDATES_MENU_ID: &str = "check-for-updates";
+#[cfg(target_os = "macos")]
+const CHECK_UPDATES_EVENT: &str = "chronotile://check-for-updates";
+
+/// Setting an application menu replaces the macOS default wholesale, so the
+/// standard Edit and Window submenus have to be rebuilt here or the app loses
+/// copy, paste and select-all in its text fields.
+#[cfg(target_os = "macos")]
+fn build_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+
+    let app_menu = SubmenuBuilder::new(app, "Chronotile")
+        .about(Some(AboutMetadata::default()))
+        .separator()
+        .text(CHECK_UPDATES_MENU_ID, "Check for Updates…")
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .fullscreen()
+        .separator()
+        .close_window()
+        .build()?;
+
+    MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu, &window_menu])
+        .build()
+}
+
 async fn blocking<T, F>(f: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -427,8 +477,17 @@ async fn get_session_detail(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(build_menu).on_menu_event(|handle, event| {
+        use tauri::Emitter;
+        if event.id().0.as_str() == CHECK_UPDATES_MENU_ID {
+            let _ = handle.emit(CHECK_UPDATES_EVENT, ());
+        }
+    });
+
+    builder
         .setup(|app| {
             #[cfg(desktop)]
             {
@@ -436,6 +495,7 @@ pub fn run() {
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
             }
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
