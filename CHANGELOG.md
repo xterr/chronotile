@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.7.0] - 2026-08-24
+
+### Features
+
+- Show the full-year spend heatmap and highlight the selected range
+
+### Miscellaneous
+
+- Release 0.6.0
+
 ## [0.6.0] - 2026-08-24
 
 ### Features
