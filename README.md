@@ -104,8 +104,10 @@ it into a compact local rollup cache, and the dashboard reads only from that:
 | registered sources | `.../design.xterr.chronotile/sources.json` | the manually added database paths |
 | refresh | every 60 s + manual trigger | incremental: only new rows are read |
 
-The ingest is incremental by design: opencode's message and part IDs encode time, so each cycle is
-an indexed range scan past a stored watermark — never a full rescan. In-flight messages are held in
+The ingest is incremental by design: each cycle is an indexed range scan past a stored `rowid`
+watermark — never a full rescan. (opencode's message and part *ids* are deliberately not used for
+this: they are not monotonic with insertion order, so an id-keyed watermark skips new rows.
+SQLite assigns `rowid` in insertion order, which is exactly what the scan needs.) In-flight messages are held in
 a pending set until their cost and tokens are final; a per-cycle sentinel detects deletions
 (session removals, reverts) and rebuilds the affected source automatically. The cache schema is
 versioned with forward-only migrations that run on startup, so upgrades are automatic — including

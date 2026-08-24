@@ -25,7 +25,10 @@ const RANGE_DAYS: Record<Exclude<RangePreset, "all" | "mtd">, number> = {
   "90d": 90,
 }
 
-function rangeStart(range: Exclude<RangePreset, "all">, anchor: number): number {
+function rangeStart(
+  range: Exclude<RangePreset, "all">,
+  anchor: number
+): number {
   if (range === "mtd") {
     const start = new Date(anchor)
     start.setDate(1)
@@ -44,10 +47,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const { update: updateSettings } = useSettings()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [activePath, setActivePath] = useState<string | null>(
-    () => loadSettings().activeDatabase,
+    () => loadSettings().activeDatabase
   )
   const [range, setRangeState] = useState<RangePreset>(
-    () => loadSettings().defaultRange,
+    () => loadSettings().defaultRange
   )
   const [anchor, setAnchor] = useState(() => Date.now())
   const [loadingProfiles, setLoadingProfiles] = useState(true)
@@ -62,7 +65,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setAnchor(Date.now())
       updateSettings({ defaultRange: next })
     },
-    [updateSettings],
+    [updateSettings]
   )
 
   const refreshProfiles = useCallback(async () => {
@@ -94,7 +97,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         const status = await api.cacheStatus()
         if (cancelled) return
         setCacheStatus(status)
-        if (lastEpoch.current !== null && status.ingestEpoch !== lastEpoch.current) {
+        if (
+          lastEpoch.current !== null &&
+          status.ingestEpoch !== lastEpoch.current
+        ) {
           setAnchor(Date.now())
         }
         lastEpoch.current = status.ingestEpoch
@@ -116,6 +122,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     lastEpoch.current = status.ingestEpoch
     setAnchor(Date.now())
   }, [])
+
+  const rebuildData = useCallback(async () => {
+    if (!activePath) return
+    const status = await api.rebuildCache(activePath)
+    setCacheStatus(status)
+    lastEpoch.current = status.ingestEpoch
+    setAnchor(Date.now())
+  }, [activePath])
 
   const selectPath = useCallback((path: string) => {
     setActivePath(path)
@@ -147,7 +161,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       await refreshProfiles()
       setActivePath(path)
     },
-    [refreshProfiles],
+    [refreshProfiles]
   )
 
   const removeDatabase = useCallback(
@@ -156,7 +170,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setActivePath((current) => (current === path ? null : current))
       await refreshProfiles()
     },
-    [refreshProfiles],
+    [refreshProfiles]
   )
 
   const rangeArgs = useMemo<RangeArgs>(() => {
@@ -176,6 +190,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       activePath,
       range,
       rangeArgs,
+      anchor,
       loadingProfiles,
       cacheStatus,
       projectOptions,
@@ -187,12 +202,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       removeDatabase,
       refreshProfiles,
       refreshData,
+      rebuildData,
     }),
     [
       profiles,
       activePath,
       range,
       rangeArgs,
+      anchor,
       loadingProfiles,
       cacheStatus,
       projectOptions,
@@ -204,8 +221,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       removeDatabase,
       refreshProfiles,
       refreshData,
-    ],
+      rebuildData,
+    ]
   )
 
-  return <DashboardContext.Provider value={value}>{children}</DashboardContext.Provider>
+  return (
+    <DashboardContext.Provider value={value}>
+      {children}
+    </DashboardContext.Provider>
+  )
 }

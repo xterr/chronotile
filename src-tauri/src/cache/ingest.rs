@@ -10,7 +10,9 @@ const PENDING_MAX_AGE_MS: i64 = 24 * 3_600_000;
 
 const MSG_PROJECTION: &str = "SELECT id, session_id, time_created, \
   COALESCE(json_extract(data,'$.role'),''), \
-  COALESCE(json_extract(data,'$.providerID'),json_extract(data,'$.model.providerID'),'unknown') || '/' || COALESCE(json_extract(data,'$.modelID'),json_extract(data,'$.model.modelID'),'unknown'), \
+  COALESCE(json_extract(data,'$.providerID'),json_extract(data,'$.model.providerID'),'unknown'), \
+  COALESCE(json_extract(data,'$.modelID'),json_extract(data,'$.model.modelID'),'unknown'), \
+  COALESCE(json_extract(data,'$.variant'),json_extract(data,'$.model.variant'),''), \
   COALESCE(json_extract(data,'$.agent'),'unknown'), \
   COALESCE(json_extract(data,'$.cost'),0), \
   COALESCE(json_extract(data,'$.tokens.input'),0), \
@@ -20,7 +22,8 @@ const MSG_PROJECTION: &str = "SELECT id, session_id, time_created, \
   COALESCE(json_extract(data,'$.tokens.cache.write'),0), \
   json_extract(data,'$.time.completed'), \
   json_extract(data,'$.error.name'), \
-  COALESCE(json_extract(data,'$.finish'),'') \
+  COALESCE(json_extract(data,'$.finish'),''), \
+  rowid \
   FROM message";
 
 const PART_PROJECTION: &str = "SELECT id, time_created, \
@@ -31,7 +34,8 @@ const PART_PROJECTION: &str = "SELECT id, time_created, \
   json_extract(data,'$.state.time.end'), \
   COALESCE(json_extract(data,'$.auto'),0), \
   COALESCE(json_extract(data,'$.overflow'),0), \
-  session_id \
+  session_id, \
+  rowid \
   FROM part";
 
 struct MsgRow {
@@ -39,13 +43,16 @@ struct MsgRow {
     session_id: String,
     time_created: i64,
     role: String,
-    model_key: String,
+    provider: String,
+    model_id: String,
+    variant: String,
     agent: String,
     cost: f64,
     tokens: [i64; 5],
     completed: Option<i64>,
     error_name: Option<String>,
     finish: String,
+    rowid: i64,
 }
 
 struct PartRow {
@@ -59,6 +66,7 @@ struct PartRow {
     auto: i64,
     overflow: i64,
     session_id: String,
+    rowid: i64,
 }
 
 #[derive(Default)]
@@ -71,6 +79,25 @@ struct MsgAgg {
     max_ts: i64,
 }
 
+#[derive(PartialEq, Eq, Hash)]
+struct MsgKey {
+    day: String,
+    session_id: String,
+    provider: String,
+    model_id: String,
+    variant: String,
+    agent: String,
+}
+
+struct RateSample {
+    day: String,
+    provider: String,
+    model_id: String,
+    variant: String,
+    project_id: String,
+    tps: f64,
+}
+
 #[derive(Default)]
 struct ToolAgg {
     calls: i64,
@@ -81,13 +108,13 @@ struct ToolAgg {
 
 #[derive(Default)]
 struct Batch {
-    messages: HashMap<(String, String, String, String), MsgAgg>,
+    messages: HashMap<MsgKey, MsgAgg>,
     prompts: HashMap<(String, String), i64>,
     hourly: HashMap<(String, u8, String), i64>,
     tools: HashMap<(String, String, String), ToolAgg>,
     events: HashMap<(String, String, String), i64>,
     durations: Vec<(String, String, String, f64)>,
-    rates: Vec<(String, String, String, f64)>,
+    rates: Vec<RateSample>,
     pending_add: Vec<(String, String, i64)>,
     pending_del: Vec<(String, String)>,
 }
@@ -113,19 +140,22 @@ fn map_msg_row(row: &rusqlite::Row) -> rusqlite::Result<MsgRow> {
         session_id: row.get(1)?,
         time_created: row.get(2)?,
         role: row.get(3)?,
-        model_key: row.get(4)?,
-        agent: row.get(5)?,
-        cost: row.get(6)?,
+        provider: row.get(4)?,
+        model_id: row.get(5)?,
+        variant: row.get(6)?,
+        agent: row.get(7)?,
+        cost: row.get(8)?,
         tokens: [
-            row.get(7)?,
-            row.get(8)?,
             row.get(9)?,
             row.get(10)?,
             row.get(11)?,
+            row.get(12)?,
+            row.get(13)?,
         ],
-        completed: row.get(12)?,
-        error_name: row.get(13)?,
-        finish: row.get(14)?,
+        completed: row.get(14)?,
+        error_name: row.get(15)?,
+        finish: row.get(16)?,
+        rowid: row.get(17)?,
     })
 }
 
@@ -141,6 +171,7 @@ fn map_part_row(row: &rusqlite::Row) -> rusqlite::Result<PartRow> {
         auto: row.get(7)?,
         overflow: row.get(8)?,
         session_id: row.get(9)?,
+        rowid: row.get(10)?,
     })
 }
 
@@ -165,12 +196,14 @@ fn ingest_message(
     if !terminal && !aged && !force {
         return false;
     }
-    let key = (
-        day.clone(),
-        row.session_id.clone(),
-        row.model_key.clone(),
-        row.agent.clone(),
-    );
+    let key = MsgKey {
+        day: day.clone(),
+        session_id: row.session_id.clone(),
+        provider: row.provider.clone(),
+        model_id: row.model_id.clone(),
+        variant: row.variant.clone(),
+        agent: row.agent.clone(),
+    };
     let agg = batch.messages.entry(key).or_default();
     if agg.msgs == 0 {
         agg.project_id = project.clone();
@@ -197,12 +230,14 @@ fn ingest_message(
     if let Some(completed) = row.completed {
         let duration = completed - row.time_created;
         if row.tokens[1] >= 100 && row.finish != "tool-calls" && duration > 0 {
-            batch.rates.push((
+            batch.rates.push(RateSample {
                 day,
-                row.model_key.clone(),
-                project,
-                row.tokens[1] as f64 / (duration as f64 / 1000.0),
-            ));
+                provider: row.provider.clone(),
+                model_id: row.model_id.clone(),
+                variant: row.variant.clone(),
+                project_id: project,
+                tps: row.tokens[1] as f64 / (duration as f64 / 1000.0),
+            });
         }
     }
     true
@@ -274,17 +309,18 @@ fn flush(cache: &Connection, source_id: i64, batch: &mut Batch) -> Result<(), St
     let tx = cache.unchecked_transaction().map_err(|e| e.to_string())?;
     {
         let mut stmt = tx.prepare_cached(
-            "INSERT INTO fact_messages (source_id, day, session_id, model_key, agent, project_id, cost, tok_input, tok_output, tok_reasoning, tok_cache_read, tok_cache_write, msgs, min_ts, max_ts) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) \
-             ON CONFLICT(source_id, day, session_id, model_key, agent) DO UPDATE SET \
+            "INSERT INTO fact_messages (source_id, day, session_id, provider, model_id, variant, agent, project_id, cost, tok_input, tok_output, tok_reasoning, tok_cache_read, tok_cache_write, msgs, min_ts, max_ts) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17) \
+             ON CONFLICT(source_id, day, session_id, provider, model_id, variant, agent) DO UPDATE SET \
              cost = cost + excluded.cost, tok_input = tok_input + excluded.tok_input, \
              tok_output = tok_output + excluded.tok_output, tok_reasoning = tok_reasoning + excluded.tok_reasoning, \
              tok_cache_read = tok_cache_read + excluded.tok_cache_read, tok_cache_write = tok_cache_write + excluded.tok_cache_write, \
              msgs = msgs + excluded.msgs, min_ts = MIN(min_ts, excluded.min_ts), max_ts = MAX(max_ts, excluded.max_ts)",
         ).map_err(|e| e.to_string())?;
-        for ((day, session, model, agent), agg) in batch.messages.drain() {
+        for (key, agg) in batch.messages.drain() {
             stmt.execute(rusqlite::params![
-                source_id, day, session, model, agent, agg.project_id, agg.cost,
+                source_id, key.day, key.session_id, key.provider, key.model_id, key.variant,
+                key.agent, agg.project_id, agg.cost,
                 agg.tokens[0], agg.tokens[1], agg.tokens[2], agg.tokens[3], agg.tokens[4],
                 agg.msgs, agg.min_ts, agg.max_ts,
             ])
@@ -337,12 +373,20 @@ fn flush(cache: &Connection, source_id: i64, batch: &mut Batch) -> Result<(), St
         }
         let mut stmt = tx
             .prepare_cached(
-                "INSERT INTO rate_samples (source_id, day, model_key, project_id, tps) VALUES (?1,?2,?3,?4,?5)",
+                "INSERT INTO rate_samples (source_id, day, provider, model_id, variant, project_id, tps) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             )
             .map_err(|e| e.to_string())?;
-        for (day, model, project, tps) in batch.rates.drain(..) {
-            stmt.execute(rusqlite::params![source_id, day, model, project, tps])
-                .map_err(|e| e.to_string())?;
+        for sample in batch.rates.drain(..) {
+            stmt.execute(rusqlite::params![
+                source_id,
+                sample.day,
+                sample.provider,
+                sample.model_id,
+                sample.variant,
+                sample.project_id,
+                sample.tps
+            ])
+            .map_err(|e| e.to_string())?;
         }
         let mut stmt = tx
             .prepare_cached(
@@ -436,15 +480,15 @@ fn sync_project_dim(source: &Connection, cache: &Connection, source_id: i64) -> 
 fn sentinel_ok(
     source: &Connection,
     table: &str,
-    watermark: &str,
+    watermark: i64,
     scanned: i64,
 ) -> Result<bool, String> {
-    if watermark.is_empty() {
+    if watermark == 0 {
         return Ok(true);
     }
     let count: i64 = source
         .query_row(
-            &format!("SELECT COUNT(*) FROM {table} WHERE id <= ?1"),
+            &format!("SELECT COUNT(*) FROM {table} WHERE rowid <= ?1"),
             [watermark],
             |r| r.get(0),
         )
@@ -533,7 +577,7 @@ fn scan_table(
     } else {
         (PART_PROJECTION, "part_watermark", "part_scanned")
     };
-    let mut watermark: String = cache
+    let mut watermark: i64 = cache
         .query_row(
             &format!("SELECT {watermark_col} FROM source WHERE id = ?1"),
             [source_id],
@@ -545,20 +589,20 @@ fn scan_table(
         if manager.interrupt.load(Ordering::SeqCst) {
             break;
         }
-        let sql = format!("{projection} WHERE id > ?1 ORDER BY id LIMIT {BATCH_SIZE}");
+        let sql = format!("{projection} WHERE rowid > ?1 ORDER BY rowid LIMIT {BATCH_SIZE}");
         let mut batch = Batch::default();
         let mut scanned = 0i64;
-        let mut last_id = watermark.clone();
+        let mut last_rowid = watermark;
         {
             let mut stmt = source.prepare(&sql).map_err(|e| e.to_string())?;
             if kind == "msg" {
                 let rows = stmt
-                    .query_map([&watermark], map_msg_row)
+                    .query_map([watermark], map_msg_row)
                     .map_err(|e| e.to_string())?;
                 for row in rows {
                     let row = row.map_err(|e| e.to_string())?;
                     scanned += 1;
-                    last_id = row.id.clone();
+                    last_rowid = row.rowid;
                     if ingest_message(&row, false, now, projects, &mut batch) {
                         ingested += 1;
                     } else {
@@ -569,12 +613,12 @@ fn scan_table(
                 }
             } else {
                 let rows = stmt
-                    .query_map([&watermark], map_part_row)
+                    .query_map([watermark], map_part_row)
                     .map_err(|e| e.to_string())?;
                 for row in rows {
                     let row = row.map_err(|e| e.to_string())?;
                     scanned += 1;
-                    last_id = row.id.clone();
+                    last_rowid = row.rowid;
                     if ingest_part(&row, false, now, projects, &mut batch) {
                         ingested += 1;
                     } else {
@@ -594,10 +638,10 @@ fn scan_table(
                 &format!(
                     "UPDATE source SET {watermark_col} = ?1, {scanned_col} = {scanned_col} + ?2 WHERE id = ?3"
                 ),
-                rusqlite::params![last_id, scanned, source_id],
+                rusqlite::params![last_rowid, scanned, source_id],
             )
             .map_err(|e| e.to_string())?;
-        watermark = last_id;
+        watermark = last_rowid;
         if let Ok(mut building) = manager.building.lock() {
             *building.entry(path.to_string()).or_default() += scanned as u64;
         }
@@ -614,7 +658,7 @@ pub fn refresh_source(manager: &CacheManager, path: &str) -> Result<u64, String>
     let source = db::open_readonly(path)?;
     let now = chrono::Utc::now().timestamp_millis();
 
-    let (msg_wm, part_wm, msg_scanned, part_scanned): (String, String, i64, i64) = cache
+    let (msg_wm, part_wm, msg_scanned, part_scanned): (i64, i64, i64, i64) = cache
         .query_row(
             "SELECT msg_watermark, part_watermark, msg_scanned, part_scanned FROM source WHERE id = ?1",
             [source_id],
@@ -622,8 +666,8 @@ pub fn refresh_source(manager: &CacheManager, path: &str) -> Result<u64, String>
         )
         .map_err(|e| e.to_string())?;
 
-    if !sentinel_ok(&source, "message", &msg_wm, msg_scanned)?
-        || !sentinel_ok(&source, "part", &part_wm, part_scanned)?
+    if !sentinel_ok(&source, "message", msg_wm, msg_scanned)?
+        || !sentinel_ok(&source, "part", part_wm, part_scanned)?
     {
         manager.wipe_source(&cache, source_id)?;
     }

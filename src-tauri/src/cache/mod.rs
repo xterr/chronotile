@@ -106,7 +106,7 @@ impl CacheManager {
             .map_err(|e| e.to_string())?;
         }
         tx.execute(
-            "UPDATE source SET msg_watermark = '', part_watermark = '', msg_scanned = 0, part_scanned = 0 WHERE id = ?1",
+            "UPDATE source SET msg_watermark = 0, part_watermark = 0, msg_scanned = 0, part_scanned = 0 WHERE id = ?1",
             [source_id],
         )
         .map_err(|e| e.to_string())?;

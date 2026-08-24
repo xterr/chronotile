@@ -114,6 +114,16 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: V3_PROJECT_DIMENSION,
         rebuild: true,
     },
+    Migration {
+        version: 4,
+        sql: V4_MODEL_DIMENSIONS,
+        rebuild: true,
+    },
+    Migration {
+        version: 5,
+        sql: V5_ROWID_WATERMARKS,
+        rebuild: true,
+    },
 ];
 
 /// v3: adds the project dimension to all part/prompt-derived facts so every
@@ -178,6 +188,68 @@ CREATE TABLE rate_samples (
 CREATE INDEX rate_samples_idx ON rate_samples (source_id, day);
 ";
 
+/// v4: splits the composite model key into separate provider, model and
+/// variant dimensions on message facts and rate samples, so model stats can
+/// be broken down (and later filtered) by provider and by reasoning-effort
+/// variant. Primary keys change, so the tables are recreated and data
+/// re-ingested.
+const V4_MODEL_DIMENSIONS: &str = "
+DROP TABLE IF EXISTS fact_messages;
+DROP TABLE IF EXISTS rate_samples;
+CREATE TABLE fact_messages (
+  source_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  variant TEXT NOT NULL DEFAULT '',
+  agent TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  cost REAL NOT NULL DEFAULT 0,
+  tok_input INTEGER NOT NULL DEFAULT 0,
+  tok_output INTEGER NOT NULL DEFAULT 0,
+  tok_reasoning INTEGER NOT NULL DEFAULT 0,
+  tok_cache_read INTEGER NOT NULL DEFAULT 0,
+  tok_cache_write INTEGER NOT NULL DEFAULT 0,
+  msgs INTEGER NOT NULL DEFAULT 0,
+  min_ts INTEGER NOT NULL,
+  max_ts INTEGER NOT NULL,
+  PRIMARY KEY (source_id, day, session_id, provider, model_id, variant, agent)
+);
+CREATE TABLE rate_samples (
+  source_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  variant TEXT NOT NULL DEFAULT '',
+  project_id TEXT NOT NULL,
+  tps REAL NOT NULL
+);
+CREATE INDEX rate_samples_idx ON rate_samples (source_id, day);
+";
+
+/// v5: opencode's message and part ids are not monotonic with insertion order
+/// (measured: 2 of 145k rows agree between id-rank and time-rank), so an
+/// id-keyed watermark both skipped new rows and made the deletion sentinel
+/// mismatch on every cycle, forcing a full re-ingest on each refresh. SQLite
+/// assigns rowid in insertion order, which is the property the incremental
+/// scan actually needs. Watermarks change type, so the table is recreated and
+/// the sources are re-ingested once.
+const V5_ROWID_WATERMARKS: &str = "
+CREATE TABLE source_v5 (
+  id INTEGER PRIMARY KEY,
+  path TEXT NOT NULL UNIQUE,
+  msg_watermark INTEGER NOT NULL DEFAULT 0,
+  part_watermark INTEGER NOT NULL DEFAULT 0,
+  msg_scanned INTEGER NOT NULL DEFAULT 0,
+  part_scanned INTEGER NOT NULL DEFAULT 0,
+  time_refreshed INTEGER
+);
+INSERT INTO source_v5 (id, path, time_refreshed) SELECT id, path, time_refreshed FROM source;
+DROP TABLE source;
+ALTER TABLE source_v5 RENAME TO source;
+";
+
 pub const FACT_TABLES: [&str; 9] = [
     "fact_messages",
     "fact_prompts",
@@ -229,7 +301,7 @@ fn wipe_facts(conn: &Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     conn.execute(
-        "UPDATE source SET msg_watermark = '', part_watermark = '', msg_scanned = 0, part_scanned = 0",
+        "UPDATE source SET msg_watermark = 0, part_watermark = 0, msg_scanned = 0, part_scanned = 0",
         [],
     )
     .map_err(|e| e.to_string())?;

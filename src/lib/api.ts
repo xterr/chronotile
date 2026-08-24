@@ -65,6 +65,8 @@ export interface DailyPoint {
 
 export interface GroupStat {
   key: string
+  provider: string | null
+  variant: string | null
   cost: number
   tokens: TokenTotals
   messages: number
@@ -72,6 +74,7 @@ export interface GroupStat {
   firstUsed: number
   lastUsed: number
   p50OutputTps: number | null
+  variants: GroupStat[]
 }
 
 export interface ModelDailyPoint {
@@ -120,8 +123,14 @@ export interface ReliabilityReport {
   retries: number
 }
 
+export interface SessionCursor {
+  timeUpdated: number
+  id: string
+}
+
 export interface SessionRow {
   id: string
+  parentId: string | null
   profile: string
   title: string
   projectName: string
@@ -138,6 +147,15 @@ export interface SessionRow {
   isSubagent: boolean
   timeCreated: number
   timeUpdated: number
+  childCount: number
+  children: SessionRow[]
+  hasMoreChildren: boolean
+}
+
+export interface SessionPage {
+  rows: SessionRow[]
+  nextCursor: SessionCursor | null
+  total: number | null
 }
 
 export interface RangeArgs {
@@ -196,19 +214,42 @@ export const api = {
   addDatabase: (path: string) => invoke<Profile>("add_database", { path }),
   removeDatabase: (path: string) => invoke<void>("remove_database", { path }),
   refreshCache: () => invoke<CacheStatus>("refresh_cache"),
+  rebuildCache: (path: string) =>
+    invoke<CacheStatus>("rebuild_cache", { path }),
   cacheStatus: () => tauriInvoke<CacheStatus>("get_cache_status"),
   overview: (args: RangeArgs) => invoke<Overview>("get_overview", { ...args }),
-  dailySeries: (args: RangeArgs) => invoke<DailyPoint[]>("get_daily_series", { ...args }),
-  modelStats: (args: RangeArgs) => invoke<GroupStat[]>("get_model_stats", { ...args }),
-  agentStats: (args: RangeArgs) => invoke<GroupStat[]>("get_agent_stats", { ...args }),
+  dailySeries: (args: RangeArgs) =>
+    invoke<DailyPoint[]>("get_daily_series", { ...args }),
+  modelStats: (args: RangeArgs) =>
+    invoke<GroupStat[]>("get_model_stats", { ...args }),
+  agentStats: (args: RangeArgs) =>
+    invoke<GroupStat[]>("get_agent_stats", { ...args }),
   modelDaily: (args: RangeArgs & { groupBy: "model" | "agent" }) =>
     invoke<ModelDailyPoint[]>("get_model_daily", { ...args }),
-  projectStats: (args: RangeArgs) => invoke<ProjectStat[]>("get_project_stats", { ...args }),
-  hourlyActivity: (args: RangeArgs) => invoke<HourlyCell[]>("get_hourly_activity", { ...args }),
-  toolStats: (args: RangeArgs) => invoke<ToolStat[]>("get_tool_stats", { ...args }),
-  reliability: (args: RangeArgs) => invoke<ReliabilityReport>("get_reliability", { ...args }),
-  sessions: (args: RangeArgs & { includeSubagents: boolean; limit: number }) =>
-    invoke<SessionRow[]>("get_sessions", { ...args }),
+  projectStats: (args: RangeArgs) =>
+    invoke<ProjectStat[]>("get_project_stats", { ...args }),
+  hourlyActivity: (args: RangeArgs) =>
+    invoke<HourlyCell[]>("get_hourly_activity", { ...args }),
+  toolStats: (args: RangeArgs) =>
+    invoke<ToolStat[]>("get_tool_stats", { ...args }),
+  reliability: (args: RangeArgs) =>
+    invoke<ReliabilityReport>("get_reliability", { ...args }),
+  sessionRoots: (
+    args: RangeArgs & {
+      cursor?: SessionCursor
+      limit: number
+      inlineChildren: number
+    }
+  ) => invoke<SessionPage>("get_session_roots", { ...args }),
+  sessionChildren: (args: {
+    dbPaths: string[]
+    parentId: string
+    cursor?: SessionCursor
+    limit: number
+  }) => invoke<SessionPage>("get_session_children", { ...args }),
+  searchSessions: (
+    args: RangeArgs & { query: string; cursor?: SessionCursor; limit: number }
+  ) => invoke<SessionPage>("search_sessions", { ...args }),
   sessionDetail: (dbPath: string, sessionId: string) =>
     invoke<MessageView[]>("get_session_detail", { dbPath, sessionId }),
 }

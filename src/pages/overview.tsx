@@ -1,5 +1,13 @@
 import { useMemo } from "react"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import { CalendarHeatmap } from "@/components/calendar-heatmap"
 import { StatCard } from "@/components/stat-card"
@@ -19,8 +27,16 @@ import {
 import { useQuery } from "@/hooks/use-query"
 import { api } from "@/lib/api"
 import { formatCost, formatCount, formatTokens } from "@/lib/format"
-import { useDashboard } from "@/state/dashboard-context"
+import { useDashboard, type RangePreset } from "@/state/dashboard-context"
 import { useSettings } from "@/state/settings-context"
+
+const RANGE_TITLES: Record<RangePreset, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "90d": "Last 90 days",
+  mtd: "Month to date",
+  all: "All time",
+}
 
 const costConfig = {
   cost: { label: "Cost", color: "var(--chart-1)" },
@@ -35,20 +51,11 @@ const tokenConfig = {
 } satisfies ChartConfig
 
 export function OverviewPage() {
-  const { rangeArgs, activePath } = useDashboard()
+  const { rangeArgs, activePath, range, anchor } = useDashboard()
   const { settings } = useSettings()
   const enabled = activePath !== null
   const overview = useQuery(() => api.overview(rangeArgs), [rangeArgs], enabled)
   const daily = useQuery(() => api.dailySeries(rangeArgs), [rangeArgs], enabled)
-  const year = useQuery(
-    () =>
-      api.dailySeries({
-        dbPaths: activePath ? [activePath] : [],
-        from: Date.now() - 365 * 86_400_000,
-      }),
-    [activePath],
-    enabled,
-  )
 
   const data = overview.data
   const totalTokens = data
@@ -59,7 +66,8 @@ export function OverviewPage() {
       data.tokens.cacheWrite
     : 0
   const cacheHit = data
-    ? data.tokens.cacheRead / Math.max(1, data.tokens.input + data.tokens.cacheRead)
+    ? data.tokens.cacheRead /
+      Math.max(1, data.tokens.input + data.tokens.cacheRead)
     : 0
 
   const dailyRows = useMemo(
@@ -73,25 +81,40 @@ export function OverviewPage() {
         cacheRead: d.tokens.cacheRead,
         cacheWrite: d.tokens.cacheWrite,
       })),
-    [daily.data],
+    [daily.data]
   )
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <StatCard label="Total cost" value={data ? formatCost(data.cost) : null} />
-        <StatCard label="Tokens" value={data ? formatTokens(totalTokens) : null} />
+        <StatCard
+          label="Total cost"
+          value={data ? formatCost(data.cost) : null}
+        />
+        <StatCard
+          label="Tokens"
+          value={data ? formatTokens(totalTokens) : null}
+        />
         <StatCard
           label="Cache hit"
           value={data ? `${(cacheHit * 100).toFixed(1)}%` : null}
         />
-        <StatCard label="Sessions" value={data ? formatCount(data.sessions) : null} />
-        <StatCard label="Prompts" value={data ? formatCount(data.prompts) : null} />
+        <StatCard
+          label="Sessions"
+          value={data ? formatCount(data.sessions) : null}
+        />
+        <StatCard
+          label="Prompts"
+          value={data ? formatCount(data.prompts) : null}
+        />
         <StatCard
           label="Tool calls"
           value={data ? formatCount(data.toolCalls) : null}
         />
-        <StatCard label="Models" value={data ? formatCount(data.modelsUsed) : null} />
+        <StatCard
+          label="Models"
+          value={data ? formatCount(data.modelsUsed) : null}
+        />
         <StatCard
           label="Active days"
           value={data ? formatCount(data.activeDays) : null}
@@ -172,7 +195,10 @@ export function OverviewPage() {
                               className="size-2 rounded-xs"
                               style={{ background: item.color }}
                             />
-                            {tokenConfig[name as keyof typeof tokenConfig].label}
+                            {
+                              tokenConfig[name as keyof typeof tokenConfig]
+                                .label
+                            }
                           </div>
                           <span className="font-mono tabular-nums">
                             {formatTokens(Number(value))}
@@ -198,13 +224,19 @@ export function OverviewPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Last 12 months</CardTitle>
+          <CardTitle>{RANGE_TITLES[range]}</CardTitle>
           <CardDescription>
-            Daily {settings.heatmapMetric === "cost" ? "spend" : "token"} intensity
+            Daily {settings.heatmapMetric === "cost" ? "spend" : "token"}{" "}
+            intensity
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CalendarHeatmap days={year.data ?? []} metric={settings.heatmapMetric} />
+          <CalendarHeatmap
+            days={daily.data ?? []}
+            metric={settings.heatmapMetric}
+            from={rangeArgs.from}
+            to={rangeArgs.to ?? anchor}
+          />
         </CardContent>
       </Card>
     </div>

@@ -9,6 +9,7 @@ export interface DashboardState {
   activePath: string | null
   range: RangePreset
   rangeArgs: RangeArgs
+  anchor: number
   loadingProfiles: boolean
   cacheStatus: CacheStatus | null
   projectOptions: ProjectOption[]
@@ -20,12 +21,14 @@ export interface DashboardState {
   removeDatabase: (path: string) => Promise<void>
   refreshProfiles: () => Promise<void>
   refreshData: () => Promise<void>
+  rebuildData: () => Promise<void>
 }
 
 export const DashboardContext = createContext<DashboardState | null>(null)
 
 export function useDashboard(): DashboardState {
   const ctx = useContext(DashboardContext)
-  if (!ctx) throw new Error("useDashboard must be used within DashboardProvider")
+  if (!ctx)
+    throw new Error("useDashboard must be used within DashboardProvider")
   return ctx
 }

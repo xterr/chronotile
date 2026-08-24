@@ -1,4 +1,5 @@
-import { useMemo } from "react"
+import { Fragment, useMemo, useState } from "react"
+import { ChevronRight } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -10,6 +11,8 @@ import {
   YAxis,
 } from "recharts"
 
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -31,9 +34,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useQuery } from "@/hooks/use-query"
 import { api, type GroupStat } from "@/lib/api"
-import { chartColor, formatCost, formatCount, formatTokens, modelLabel } from "@/lib/format"
+import { chartColor, formatCost, formatCount, formatTokens } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
 
 const TOP_SERIES = 5
@@ -53,45 +61,92 @@ function totalTokens(stat: GroupStat): number {
   )
 }
 
+function groupLabel(stat: GroupStat): string {
+  return stat.provider ? `${stat.provider}/${stat.key}` : stat.key
+}
+
+function StatCells({ stat }: { stat: GroupStat }) {
+  return (
+    <>
+      <TableCell className="text-right tabular-nums">
+        {formatCost(stat.cost)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatTokens(totalTokens(stat))}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatTokens(stat.tokens.output)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatTokens(stat.tokens.reasoning)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatCount(stat.messages)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {formatCount(stat.sessions)}
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {stat.p50OutputTps ? stat.p50OutputTps.toFixed(1) : "—"}
+      </TableCell>
+    </>
+  )
+}
+
 export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
   const { rangeArgs, activePath } = useDashboard()
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const enabled = activePath !== null
+
+  const toggle = (key: string) =>
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
   const stats = useQuery(
-    () => (groupBy === "model" ? api.modelStats(rangeArgs) : api.agentStats(rangeArgs)),
+    () =>
+      groupBy === "model"
+        ? api.modelStats(rangeArgs)
+        : api.agentStats(rangeArgs),
     [rangeArgs, groupBy],
-    enabled,
+    enabled
   )
   const dailyByKey = useQuery(
     () => api.modelDaily({ ...rangeArgs, groupBy }),
     [rangeArgs, groupBy],
-    enabled,
+    enabled
   )
 
   const rows = useMemo(() => stats.data ?? [], [stats.data])
-  const label = useMemo(
-    () => (groupBy === "model" ? modelLabel : (key: string) => key),
-    [groupBy],
-  )
   const totalCost = useMemo(
     () => rows.reduce((sum, row) => sum + row.cost, 0),
-    [rows],
+    [rows]
   )
 
   const { shareConfig, shareData } = useMemo(() => {
+    const totals = new Map<string, number>()
+    for (const stat of rows) {
+      const name = groupLabel(stat)
+      totals.set(name, (totals.get(name) ?? 0) + stat.cost)
+    }
     const config: ChartConfig = {}
-    const data = rows.slice(0, TOP_SERIES + 4).map((stat, i) => {
-      config[label(stat.key)] = {
-        label: label(stat.key),
-        color: chartColor(i),
-      }
-      return {
-        name: label(stat.key),
-        cost: stat.cost,
-        fill: chartColor(i),
-      }
-    })
+    const data = [...totals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, TOP_SERIES + 4)
+      .map(([name, cost], i) => {
+        config[name] = {
+          label: name,
+          color: chartColor(i),
+        }
+        return {
+          name,
+          cost,
+          fill: chartColor(i),
+        }
+      })
     return { shareConfig: config, shareData: data }
-  }, [rows, label])
+  }, [rows])
 
   const { areaConfig, areaData, areaKeys } = useMemo(() => {
     const points = dailyByKey.data ?? []
@@ -107,11 +162,11 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
     const byDate = new Map<string, Record<string, number | string>>()
     for (const p of points) {
       const row = byDate.get(p.date) ?? { date: p.date }
-      const key = keySet.has(p.key) ? label(p.key) : "other"
+      const key = keySet.has(p.key) ? p.key : "other"
       row[key] = (Number(row[key]) || 0) + p.cost
       byDate.set(p.date, row)
     }
-    const keys = [...top.map(label), "other"]
+    const keys = [...top, "other"]
     const config: ChartConfig = {}
     keys.forEach((key, i) => {
       config[key] = { label: key, color: chartColor(i) }
@@ -127,7 +182,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
       areaData,
       areaKeys: keys,
     }
-  }, [dailyByKey.data, label])
+  }, [dailyByKey.data])
 
   return (
     <div className="flex flex-col gap-4">
@@ -166,7 +221,11 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
                 >
                   <Label
                     content={({ viewBox }) => {
-                      if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) {
+                      if (
+                        !viewBox ||
+                        !("cx" in viewBox) ||
+                        !("cy" in viewBox)
+                      ) {
                         return null
                       }
                       return (
@@ -199,13 +258,16 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
             </ChartContainer>
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
               {shareData.map((entry) => (
-                <div key={entry.name} className="flex items-center gap-2 text-sm">
+                <div
+                  key={entry.name}
+                  className="flex items-center gap-2 text-sm"
+                >
                   <span
                     className="size-2.5 shrink-0 rounded-xs"
                     style={{ background: entry.fill }}
                   />
                   <span className="truncate">{entry.name}</span>
-                  <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
+                  <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
                     {totalCost > 0
                       ? `${((entry.cost / totalCost) * 100).toFixed(1)}%`
                       : "—"}
@@ -297,34 +359,70 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((stat) => (
-                <TableRow key={stat.key}>
-                  <TableCell className="max-w-64 truncate font-medium">
-                    {label(stat.key)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatCost(stat.cost)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatTokens(totalTokens(stat))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatTokens(stat.tokens.output)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatTokens(stat.tokens.reasoning)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatCount(stat.messages)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatCount(stat.sessions)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {stat.p50OutputTps ? stat.p50OutputTps.toFixed(1) : "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {rows.map((stat) => {
+                const label = groupLabel(stat)
+                const open = expanded.has(label)
+                return (
+                  <Fragment key={label}>
+                    <TableRow>
+                      <TableCell className="max-w-64 font-medium">
+                        <div className="flex items-center gap-1.5">
+                          {stat.variants.length > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-expanded={open}
+                              aria-label={`${open ? "Hide" : "Show"} variants of ${label}`}
+                              onClick={() => toggle(label)}
+                            >
+                              <ChevronRight
+                                className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+                              />
+                            </Button>
+                          ) : (
+                            <span className="size-6 shrink-0" />
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={<span className="min-w-0 truncate" />}
+                            >
+                              {label}
+                            </TooltipTrigger>
+                            <TooltipContent>{label}</TooltipContent>
+                          </Tooltip>
+                          {stat.variant ? (
+                            <Badge variant="secondary">{stat.variant}</Badge>
+                          ) : null}
+                          {stat.variants.length > 0 ? (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {stat.variants.length} variants
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <StatCells stat={stat} />
+                    </TableRow>
+                    {open
+                      ? stat.variants.map((variant) => (
+                          <TableRow
+                            key={`${label}#${variant.variant ?? "default"}`}
+                            className="bg-muted/20 text-muted-foreground"
+                          >
+                            <TableCell className="max-w-64 pl-9">
+                              <Badge
+                                variant="outline"
+                                className="font-mono text-xs"
+                              >
+                                {variant.variant ?? "default"}
+                              </Badge>
+                            </TableCell>
+                            <StatCells stat={variant} />
+                          </TableRow>
+                        ))
+                      : null}
+                  </Fragment>
+                )
+              })}
             </TableBody>
           </Table>
         </CardContent>

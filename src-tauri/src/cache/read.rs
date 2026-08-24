@@ -54,7 +54,7 @@ pub fn overview(conn: &Connection, params: DayParams) -> Result<Overview, String
         .query_row(
             &format!(
                 "SELECT {FACT_SUMS}, COALESCE(SUM(msgs),0), COUNT(DISTINCT session_id), \
-                 COUNT(DISTINCT model_key), COUNT(DISTINCT day) \
+                 COUNT(DISTINCT provider || '/' || model_id), COUNT(DISTINCT day) \
                  FROM fact_messages WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4)"
             ),
             params,
@@ -113,17 +113,18 @@ pub fn daily_series(conn: &Connection, params: DayParams) -> Result<Vec<DailyPoi
     rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
 }
 
-pub fn group_stats(
-    conn: &Connection,
-    params: DayParams,
-    by_agent: bool,
-) -> Result<Vec<GroupStat>, String> {
-    let key = if by_agent { "agent" } else { "model_key" };
+fn median(values: &mut [f64]) -> Option<f64> {
+    values.sort_by(|a, b| a.total_cmp(b));
+    percentile(values, 0.5)
+}
+
+fn agent_stats(conn: &Connection, params: DayParams) -> Result<Vec<GroupStat>, String> {
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT {key}, {FACT_SUMS}, COALESCE(SUM(msgs),0), COUNT(DISTINCT session_id), \
+            "SELECT agent, {FACT_SUMS}, COALESCE(SUM(msgs),0), COUNT(DISTINCT session_id), \
              MIN(min_ts), MAX(max_ts) \
-             FROM fact_messages WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4) GROUP BY {key}"
+             FROM fact_messages WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4) \
+             GROUP BY agent"
         ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -137,39 +138,165 @@ pub fn group_stats(
                 sessions: row.get(8)?,
                 first_used: row.get(9)?,
                 last_used: row.get(10)?,
-                p50_output_tps: None,
+                ..Default::default()
             })
         })
         .map_err(|e| e.to_string())?;
     let mut out: Vec<GroupStat> = rows
         .collect::<Result<_, _>>()
         .map_err(|e: rusqlite::Error| e.to_string())?;
+    out.sort_by(|a, b| b.cost.total_cmp(&a.cost));
+    Ok(out)
+}
 
-    if !by_agent {
-        let mut rates: HashMap<String, Vec<f64>> = HashMap::new();
+type RateTables = (
+    HashMap<(String, String), Vec<f64>>,
+    HashMap<(String, String, String), Vec<f64>>,
+);
+
+fn rate_samples(conn: &Connection, params: DayParams) -> Result<RateTables, String> {
+    let mut by_model: HashMap<(String, String), Vec<f64>> = HashMap::new();
+    let mut by_variant: HashMap<(String, String, String), Vec<f64>> = HashMap::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT provider, model_id, variant, tps FROM rate_samples \
+             WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4)",
+        )
+        .map_err(|e| e.to_string())?;
+    let samples = stmt
+        .query_map(params, |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, f64>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for sample in samples {
+        let (provider, model, variant, tps) = sample.map_err(|e| e.to_string())?;
+        by_model
+            .entry((provider.clone(), model.clone()))
+            .or_default()
+            .push(tps);
+        by_variant
+            .entry((provider, model, variant))
+            .or_default()
+            .push(tps);
+    }
+    Ok((by_model, by_variant))
+}
+
+fn model_stats(conn: &Connection, params: DayParams) -> Result<Vec<GroupStat>, String> {
+    let (mut by_model, mut by_variant) = rate_samples(conn, params)?;
+
+    let mut variants: HashMap<(String, String), Vec<GroupStat>> = HashMap::new();
+    {
         let mut stmt = conn
-            .prepare(
-                "SELECT model_key, tps FROM rate_samples WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4)",
-            )
+            .prepare(&format!(
+                "SELECT provider, model_id, variant, {FACT_SUMS}, COALESCE(SUM(msgs),0), \
+                 COUNT(DISTINCT session_id), MIN(min_ts), MAX(max_ts) \
+                 FROM fact_messages WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4) \
+                 GROUP BY provider, model_id, variant"
+            ))
             .map_err(|e| e.to_string())?;
-        let samples = stmt
-            .query_map(params, |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+        let rows = stmt
+            .query_map(params, |row| {
+                let provider: String = row.get(0)?;
+                let model_id: String = row.get(1)?;
+                let variant: String = row.get(2)?;
+                let (cost, tokens) = read_tokens(row, 3)?;
+                Ok((
+                    provider.clone(),
+                    model_id.clone(),
+                    variant.clone(),
+                    GroupStat {
+                        key: model_id,
+                        provider: Some(provider),
+                        variant: Some(variant).filter(|v| !v.is_empty()),
+                        cost,
+                        tokens,
+                        messages: row.get(9)?,
+                        sessions: row.get(10)?,
+                        first_used: row.get(11)?,
+                        last_used: row.get(12)?,
+                        ..Default::default()
+                    },
+                ))
             })
             .map_err(|e| e.to_string())?;
-        for sample in samples {
-            let (key, tps) = sample.map_err(|e| e.to_string())?;
-            rates.entry(key).or_default().push(tps);
-        }
-        for stat in &mut out {
-            if let Some(values) = rates.get_mut(&stat.key) {
-                values.sort_by(|a, b| a.total_cmp(b));
-                stat.p50_output_tps = percentile(values, 0.5);
+        for row in rows {
+            let (provider, model_id, variant, mut stat) = row.map_err(|e| e.to_string())?;
+            if let Some(values) = by_variant.get_mut(&(provider.clone(), model_id.clone(), variant))
+            {
+                stat.p50_output_tps = median(values);
             }
+            variants.entry((provider, model_id)).or_default().push(stat);
         }
+    }
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT provider, model_id, {FACT_SUMS}, COALESCE(SUM(msgs),0), \
+             COUNT(DISTINCT session_id), MIN(min_ts), MAX(max_ts) \
+             FROM fact_messages WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4) \
+             GROUP BY provider, model_id"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params, |row| {
+            let provider: String = row.get(0)?;
+            let model_id: String = row.get(1)?;
+            let (cost, tokens) = read_tokens(row, 2)?;
+            Ok((
+                provider.clone(),
+                model_id.clone(),
+                GroupStat {
+                    key: model_id,
+                    provider: Some(provider),
+                    cost,
+                    tokens,
+                    messages: row.get(8)?,
+                    sessions: row.get(9)?,
+                    first_used: row.get(10)?,
+                    last_used: row.get(11)?,
+                    ..Default::default()
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut out: Vec<GroupStat> = Vec::new();
+    for row in rows {
+        let (provider, model_id, mut stat) = row.map_err(|e| e.to_string())?;
+        if let Some(values) = by_model.get_mut(&(provider.clone(), model_id.clone())) {
+            stat.p50_output_tps = median(values);
+        }
+        let mut children = variants.remove(&(provider, model_id)).unwrap_or_default();
+        children.sort_by(|a, b| b.cost.total_cmp(&a.cost));
+        // A lone variant carries no information the model row does not already
+        // show, so it collapses into a badge instead of a disclosable child.
+        match children.len() {
+            0 => {}
+            1 => stat.variant = children[0].variant.clone(),
+            _ => stat.variants = children,
+        }
+        out.push(stat);
     }
     out.sort_by(|a, b| b.cost.total_cmp(&a.cost));
     Ok(out)
+}
+
+pub fn group_stats(
+    conn: &Connection,
+    params: DayParams,
+    by_agent: bool,
+) -> Result<Vec<GroupStat>, String> {
+    if by_agent {
+        agent_stats(conn, params)
+    } else {
+        model_stats(conn, params)
+    }
 }
 
 pub fn group_daily(
@@ -177,7 +304,11 @@ pub fn group_daily(
     params: DayParams,
     by_agent: bool,
 ) -> Result<Vec<ModelDailyPoint>, String> {
-    let key = if by_agent { "agent" } else { "model_key" };
+    let key = if by_agent {
+        "agent"
+    } else {
+        "provider || '/' || model_id"
+    };
     let mut stmt = conn
         .prepare(&format!(
             "SELECT day, {key}, COALESCE(SUM(cost),0), \

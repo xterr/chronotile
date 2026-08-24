@@ -52,6 +52,8 @@ pub struct DailyPoint {
 #[serde(rename_all = "camelCase")]
 pub struct GroupStat {
     pub key: String,
+    pub provider: Option<String>,
+    pub variant: Option<String>,
     pub cost: f64,
     pub tokens: TokenTotals,
     pub messages: i64,
@@ -59,6 +61,7 @@ pub struct GroupStat {
     pub first_used: i64,
     pub last_used: i64,
     pub p50_output_tps: Option<f64>,
+    pub variants: Vec<GroupStat>,
 }
 
 #[derive(Debug, Serialize, Default, Clone)]

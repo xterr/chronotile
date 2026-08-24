@@ -9,7 +9,7 @@ mod stats;
 use cache::{CacheManager, CacheStatus};
 use db::Profile;
 use parts::{ReliabilityReport, ToolStat};
-use sessions::SessionRow;
+use sessions::{SessionCursor, SessionPage};
 use stats::{DailyPoint, GroupStat, HourlyCell, ModelDailyPoint, Overview, ProjectStat, Range};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -123,6 +123,41 @@ async fn remove_database(state: tauri::State<'_, AppState>, path: String) -> Res
 async fn refresh_cache(state: tauri::State<'_, AppState>) -> Result<CacheStatus, String> {
     run_refresh(state.cache.clone(), state.config_dir.clone()).await;
     Ok(state.cache.status(&known_paths(&state.config_dir)))
+}
+
+/// Only `path` is rebuilt; other sources keep their watermarks. The ingest
+/// lock is held across both the wipe and the re-scan so the background refresh
+/// loop can never observe the half-empty cache.
+#[tauri::command]
+async fn rebuild_cache(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<CacheStatus, String> {
+    let cache = state.cache.clone();
+    let config_dir = state.config_dir.clone();
+    {
+        let _guard = cache.ingest_lock.lock().await;
+
+        let wipe_cache = cache.clone();
+        let wipe_config = config_dir.clone();
+        let wipe_path = path.clone();
+        blocking(move || {
+            db::validate_known_path(&wipe_path, &sources::load(&wipe_config))?;
+            let conn = wipe_cache.open()?;
+            let source_id = wipe_cache.source_id(&conn, &wipe_path)?;
+            wipe_cache.wipe_source(&conn, source_id)
+        })
+        .await?;
+
+        let ingest_cache = cache.clone();
+        let paths = vec![path];
+        tauri::async_runtime::spawn_blocking(move || {
+            cache::ingest::refresh_all(&ingest_cache, &paths)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(cache.status(&known_paths(&config_dir)))
 }
 
 #[tauri::command]
@@ -283,42 +318,94 @@ async fn list_projects(
     .await
 }
 
+async fn session_query<F>(
+    state: &tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    query: F,
+) -> Result<SessionPage, String>
+where
+    F: FnOnce(&rusqlite::Connection, &str) -> Result<SessionPage, String> + Send + 'static,
+{
+    let config_dir = state.config_dir.clone();
+    blocking(move || {
+        let path = db_paths.first().ok_or("no database selected")?;
+        let customs = sources::load(&config_dir);
+        db::validate_known_path(path, &customs)?;
+        let profile = db::discover_profiles(&customs)
+            .iter()
+            .find(|p| p.path == *path)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        let conn = db::open_readonly(path)?;
+        query(&conn, &profile)
+    })
+    .await
+}
+
 #[tauri::command]
-async fn get_sessions(
+async fn get_session_roots(
     state: tauri::State<'_, AppState>,
     db_paths: Vec<String>,
     from: Option<i64>,
     to: Option<i64>,
     project: Option<String>,
-    include_subagents: bool,
-    limit: usize,
-) -> Result<Vec<SessionRow>, String> {
-    let config_dir = state.config_dir.clone();
-    blocking(move || {
+    cursor: Option<SessionCursor>,
+    limit: i64,
+    inline_children: i64,
+) -> Result<SessionPage, String> {
+    session_query(&state, db_paths, move |conn, profile| {
         let range = Range::new(from, to);
-        let customs = sources::load(&config_dir);
-        let known = db::discover_profiles(&customs);
-        let mut acc = Vec::new();
-        for path in &db_paths {
-            db::validate_known_path(path, &customs)?;
-            let conn = db::open_readonly(path)?;
-            let profile = known
-                .iter()
-                .find(|p| p.path == *path)
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| "unknown".to_string());
-            sessions::sessions_list(
-                &conn,
-                &profile,
-                range,
-                include_subagents,
-                project.as_deref(),
-                &mut acc,
-            )?;
-        }
-        acc.sort_by(|a, b| b.time_updated.cmp(&a.time_updated));
-        acc.truncate(limit.min(1000));
-        Ok(acc)
+        sessions::roots(
+            conn,
+            profile,
+            range.from,
+            range.to,
+            project.as_deref(),
+            cursor.as_ref(),
+            limit,
+            inline_children,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_session_children(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    parent_id: String,
+    cursor: Option<SessionCursor>,
+    limit: i64,
+) -> Result<SessionPage, String> {
+    session_query(&state, db_paths, move |conn, profile| {
+        sessions::children(conn, profile, &parent_id, cursor.as_ref(), limit)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn search_sessions(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    project: Option<String>,
+    query: String,
+    cursor: Option<SessionCursor>,
+    limit: i64,
+) -> Result<SessionPage, String> {
+    session_query(&state, db_paths, move |conn, profile| {
+        let range = Range::new(from, to);
+        sessions::search(
+            conn,
+            profile,
+            range.from,
+            range.to,
+            project.as_deref(),
+            &query,
+            cursor.as_ref(),
+            limit,
+        )
     })
     .await
 }
@@ -377,6 +464,7 @@ pub fn run() {
             add_database,
             remove_database,
             refresh_cache,
+            rebuild_cache,
             get_cache_status,
             get_overview,
             get_daily_series,
@@ -387,7 +475,9 @@ pub fn run() {
             get_hourly_activity,
             get_tool_stats,
             get_reliability,
-            get_sessions,
+            get_session_roots,
+            get_session_children,
+            search_sessions,
             get_session_detail
         ])
         .run(tauri::generate_context!())
