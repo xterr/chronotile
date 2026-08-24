@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.0] - 2026-08-24
+
+### Refactoring
+
+- Replace the custom query hook with tanstack query
+
+### Miscellaneous
+
+- Release 0.8.0
+
 ## [0.8.0] - 2026-08-24
 
 ### Features
