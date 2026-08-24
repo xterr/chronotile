@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.0] - 2026-08-24
+
+### Features
+
+- Check for updates at launch and from the macOS app menu
+
+### Styling
+
+- Drop the model cost-share legend and reveal full agent names on hover
+
+### Miscellaneous
+
+- Release 0.4.0
+
 ## [0.4.0] - 2026-08-24
 
 ### Features
