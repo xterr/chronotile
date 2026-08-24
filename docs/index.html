@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Chronotile — Local usage analytics for opencode</title>
-  <meta name="description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, and sessions — tiled by day. 100% local, read-only, no telemetry. MIT." />
+  <meta name="description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, sessions, and skills — tiled by day. Local, read-only, no telemetry. MIT." />
   <meta name="theme-color" content="#101014" />
   <meta name="color-scheme" content="dark" />
 
@@ -13,7 +13,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Chronotile" />
   <meta property="og:title" content="Chronotile — Local usage analytics for opencode" />
-  <meta property="og:description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, and sessions — tiled by day. 100% local, read-only, no telemetry." />
+  <meta property="og:description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, sessions, and skills — tiled by day. Local, read-only, no telemetry." />
   <meta property="og:url" content="https://xterr.github.io/chronotile/" />
   <meta property="og:image" content="https://xterr.github.io/chronotile/screenshot.png" />
   <meta property="og:image:width" content="1440" />
@@ -21,7 +21,7 @@
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Chronotile — Local usage analytics for opencode" />
-  <meta name="twitter:description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, and sessions — tiled by day." />
+  <meta name="twitter:description" content="A native desktop dashboard for opencode: cost, tokens, models, tools, sessions, and skills — tiled by day." />
   <meta name="twitter:image" content="https://xterr.github.io/chronotile/screenshot.png" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -443,11 +443,12 @@
 
     /* small platform note (macOS gatekeeper) */
     .dl-note {
-      margin: 6px 0 0;
+      max-width: 420px;
+      margin: 6px auto 0;
       font-size: 12.5px;
       color: var(--fg-dim);
       text-align: center;
-      line-height: 1.4;
+      line-height: 1.5;
     }
     .dl-note[hidden] { display: none; }
     .dl-note kbd {
@@ -759,6 +760,52 @@
     }
     .privacy p strong { color: var(--accent); font-weight: 600; }
 
+    /* fine print under the privacy claim — spells out every asterisk above.
+       Left-aligned inside a centred column: asterisked caveats read as
+       clauses, not as a second headline. */
+    .privacy-fine {
+      max-width: 640px;
+      margin: 28px auto 0;
+      text-align: left;
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--fg-dim);
+    }
+    .privacy-fine li {
+      display: flex;
+      gap: 8px;
+    }
+    .privacy-fine li + li { margin-top: 10px; }
+    .privacy-fine .marker {
+      flex-shrink: 0;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .privacy-fine strong { color: var(--fg-muted); font-weight: 600; }
+    .privacy-fine code {
+      color: var(--fg-muted);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    /* ---------------- footnote marker ---------------- */
+    /* Superscript asterisk that jumps to the matching fine-print entry.
+       line-height: 0 keeps the raised marker from inflating its line box,
+       so marking a word never shifts the surrounding layout. */
+    .fn {
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.72em;
+      vertical-align: super;
+      line-height: 0;
+      padding: 0 1px;
+      text-decoration: none;
+    }
+    .fn:hover,
+    .fn:focus-visible { color: var(--accent-hover); }
+
     /* ---------------- footer ---------------- */
     footer {
       padding: 40px 0 48px;
@@ -845,11 +892,11 @@
         </h1>
 
         <p class="hero-sub">
-          Cost, tokens, models, tools, and sessions — tiled by day. A native desktop dashboard for the data opencode already keeps on your disk.
+          Cost, tokens, models, agents, tools, skills, and sessions — tiled by day. A native desktop dashboard for the data opencode already keeps on your disk.
         </p>
 
         <div class="hero-trust">
-          <span>100% local</span>
+          <span>100% local<a class="fn" href="#privacy" aria-label="Footnote: what 100% local means">*</a></span>
           <span class="sep" aria-hidden="true">·</span>
           <span>read-only</span>
           <span class="sep" aria-hidden="true">·</span>
@@ -960,9 +1007,12 @@
         <!-- version + format line — populated once the API resolves -->
         <div class="download-meta" id="dl-meta" hidden></div>
 
-        <!-- macOS gatekeeper footnote — shown only for detected macOS users -->
+        <!-- macOS gatekeeper footnote — shown only for detected macOS users.
+             Do NOT shorten this back to "right-click → Open": that stopped
+             clearing unsigned apps in macOS 15 Sequoia. -->
         <p class="dl-note" id="dl-note" hidden>
-          Unsigned build — right-click the app and choose <kbd>Open</kbd> on first launch.
+          Unsigned build — Gatekeeper blocks the first launch. Allow it once under
+          <kbd>System Settings → Privacy &amp; Security → Open Anyway</kbd>.
         </p>
 
         <div class="shot-wrap">
@@ -989,7 +1039,7 @@
         <div class="section-head">
           <span class="eyebrow">Features</span>
           <h2>Everything opencode already knows about your work.</h2>
-          <p>Just made legible. Filter by project, pick a range, drill into any session.</p>
+          <p>Just made legible. Nine pages, filterable by project and time range, down to a single session.</p>
         </div>
 
         <div class="feature-grid">
@@ -999,7 +1049,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15V9"/><path d="M11 15V6"/><path d="M15 15v-4"/><path d="M19 15V8"/></svg>
             </div>
             <h3>Every stat that matters</h3>
-            <p>Spend, tokens (including reasoning and cache), models, agents, tools, projects, sessions, and errors — filterable by project and time range.</p>
+            <p>Spend, tokens (including reasoning and cache), models, agents, tools, skills, projects, sessions, and errors — filterable by project and by 7d / 30d / 90d / MTD / all time.</p>
           </article>
 
           <article class="feature">
@@ -1015,15 +1065,15 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>
             </div>
             <h3>Local &amp; read-only</h3>
-            <p>Your opencode databases are opened read-only. Nothing is modified, nothing leaves your machine.</p>
+            <p>Your opencode databases are opened read-only — nothing is modified. No usage data ever leaves your machine; the only request the app makes is an update check<a class="fn" href="#privacy" aria-label="Footnote: about the update check">*</a>.</p>
           </article>
 
           <article class="feature">
             <div class="feature-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><circle cx="3.5" cy="6" r="1.5"/><circle cx="3.5" cy="12" r="1.5"/><circle cx="3.5" cy="18" r="1.5"/></svg>
             </div>
-            <h3>Session transcripts</h3>
-            <p>Drill into any session: messages, tool calls with durations, reasoning, file patches, and errors.</p>
+            <h3>Session tree &amp; transcripts</h3>
+            <p>Expand any session into its subagent children, then read the whole conversation: messages, tool calls with durations, reasoning, file patches, and errors.</p>
           </article>
 
           <article class="feature">
@@ -1031,7 +1081,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/><rect x="17" y="3" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="3" y="17" width="4" height="4" rx="1"/><rect x="10" y="17" width="4" height="4" rx="1"/><rect x="17" y="17" width="4" height="4" rx="1"/></svg>
             </div>
             <h3>GitHub-style heatmap</h3>
-            <p>A 12-month calendar of daily spend or token intensity — the whole year at a glance.</p>
+            <p>A full year of daily spend or token intensity, always shown in full — with the range you picked highlighted and the rest dimmed.</p>
           </article>
 
           <article class="feature">
@@ -1039,7 +1089,31 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
             </div>
             <h3>Multiple databases</h3>
-            <p>Auto-detects the default opencode DB and lets you register any number more — e.g. per-profile databases from <a href="https://xterr.github.io/ocp/" target="_blank" rel="noopener noreferrer">ocp</a>.</p>
+            <p>Auto-detects the default opencode DB and lets you register any number more — e.g. per-profile databases from <a href="https://xterr.github.io/ocp/" target="_blank" rel="noopener noreferrer">ocp</a>. Switch with one click, or rebuild a source's index on demand.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.5L18.5 9l-4.6 1.5L12 15l-1.9-4.5L5.5 9l4.6-1.5L12 3Z"/><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9L18 16Z"/></svg>
+            </div>
+            <h3>Skill analytics</h3>
+            <p>Which skills actually get loaded, and how — preloaded by a task or invoked directly — with sessions, projects, and first/last use per skill.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v2"/><path d="M14 3v2"/><path d="M10 19v2"/><path d="M14 19v2"/><path d="M3 10h2"/><path d="M3 14h2"/><path d="M19 10h2"/><path d="M19 14h2"/></svg>
+            </div>
+            <h3>Models down to the variant</h3>
+            <p>Per-model and per-agent cost, tokens, and median output tok/s measured from your own traffic — expandable into each reasoning-effort variant.</p>
+          </article>
+
+          <article class="feature">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            </div>
+            <h3>Updates in place</h3>
+            <p>Signed updates install from inside the app on macOS, Windows, and Linux AppImage. The launch check is silent unless a new version exists — and can be switched off.</p>
           </article>
 
         </div>
@@ -1065,28 +1139,51 @@
           <li class="step">
             <div class="step-num">02 — Incremental</div>
             <h3>Indexed range scans, not full rescans</h3>
-            <p>Every cycle is an indexed range scan past a stored watermark. In-flight messages wait until their cost and tokens are final. Refreshed every <code>60 s</code>.</p>
+            <p>Every cycle is an indexed range scan past a stored <code>rowid</code> watermark — never a full rescan. In-flight messages wait until their cost and tokens are final. A cycle runs every <code>60 s</code>, or whenever you hit refresh.</p>
           </li>
 
           <li class="step">
             <div class="step-num">03 — Query</div>
             <h3>Dashboard reads from the cache</h3>
-            <p>The UI never queries opencode directly — it reads only from the local rollup. Instant, even alongside a running opencode.</p>
+            <p>The UI never queries opencode directly — it reads only from the local rollup, and polls the ingest status every <code>5 s</code> so new data lands on its own. Instant, even alongside a running opencode.</p>
           </li>
         </ol>
 
         <div class="stack-line">
-          <span>Built with</span> &nbsp;·&nbsp; Tauri&nbsp;2 &nbsp;·&nbsp; Rust &nbsp;·&nbsp; React &nbsp;·&nbsp; shadcn/ui
+          <span>Built with</span> &nbsp;·&nbsp; Tauri&nbsp;2 &nbsp;·&nbsp; Rust &nbsp;·&nbsp; React&nbsp;19 &nbsp;·&nbsp; Tailwind&nbsp;4 &nbsp;·&nbsp; shadcn/ui
         </div>
       </div>
     </section>
 
     <!-- ============ PRIVACY STRIP ============ -->
-    <section class="privacy" aria-label="Privacy">
+    <section class="privacy" id="privacy" aria-label="Privacy">
       <div class="container">
         <p>
-          Everything is <strong>local</strong>. opencode databases are opened <strong>read-only</strong>. Chronotile writes only to its own app directory. No telemetry, no network calls, no accounts.
+          Everything is <strong>local</strong>. opencode databases are opened <strong>read-only</strong>. Chronotile writes only to its own app directory. No telemetry, no accounts, no network calls.<span class="fn" aria-hidden="true">*</span>
         </p>
+
+        <ul class="privacy-fine">
+          <li>
+            <span class="marker" aria-hidden="true">*</span>
+            <span>
+              <strong>“no network calls”</strong> — with one exception, and it is not your data.
+              Chronotile asks GitHub whether a newer release exists: it requests a single file,
+              <code>releases/latest/download/latest.json</code>, and sends nothing but the
+              request itself. No usage data, no identifiers, no analytics. It runs once at
+              launch — silent unless an update is waiting — and whenever you pick
+              <strong>Check for Updates…</strong> yourself. Switch the launch check off under
+              <strong>Settings → Preferences</strong> and the app makes no network calls at all.
+            </span>
+          </li>
+          <li>
+            <span class="marker" aria-hidden="true">*</span>
+            <span>
+              <strong>“100% local”</strong> — refers to your analytics. Every session, token, and
+              dollar is read, rolled up, and queried on your own machine. Nothing is uploaded,
+              and there is no server to upload it to.
+            </span>
+          </li>
+        </ul>
       </div>
     </section>
 

@@ -4,7 +4,7 @@
 
 # Chronotile
 
-**Local usage analytics for [opencode](https://opencode.ai) — cost, tokens, models, tools, and sessions, tiled by day.**
+**Local usage analytics for [opencode](https://opencode.ai) — cost, tokens, models, agents, tools, skills, and sessions, tiled by day.**
 
 <img alt="tauri 2" src="https://img.shields.io/badge/tauri-2.x-24C8D8?logo=tauri&logoColor=white">
 <img alt="react 19" src="https://img.shields.io/badge/react-19-087EA4?logo=react&logoColor=white">
@@ -26,11 +26,12 @@ eats the tokens? What does your agent actually *do* all day? The data is sitting
 Chronotile turns it into a dashboard.
 
 - 📊 **Every stat that matters** — spend, tokens (including reasoning and cache), models, agents,
-  tools, projects, sessions, errors — all filterable by project and time range.
+  tools, skills, projects, sessions, errors — all filterable by project and time range.
 - ⚡ **Instant on multi-gigabyte databases** — an incremental rollup cache answers every query in
   milliseconds, no matter how large your history grows.
 - 🔒 **Local and read-only** — your opencode databases are opened read-only, nothing is modified,
-  and nothing ever leaves your machine.
+  and no usage data ever leaves your machine. The one network request the app makes is an
+  optional [release check](#data--privacy).
 
 Chronotile is a native desktop app (Tauri 2, Rust backend, React + shadcn/ui frontend). It
 auto-detects your default opencode database and lets you register any number of additional ones —
@@ -38,20 +39,24 @@ for example per-profile databases created by [ocp](https://github.com/xterr/ocp)
 
 ## Features
 
-- **Overview** — total cost, token breakdown, cache-hit rate, and a GitHub-style 12-month
-  calendar heatmap of daily spend or token intensity.
-- **Per-model & per-provider stats** — cost share, daily stacked trends, message/session counts,
-  and median output tokens-per-second measured from your own traffic.
-- **Agent & tool analytics** — which agents spend the money; per-tool call counts, error rates,
-  and p50/p95 durations.
+- **Overview** — total cost, token breakdown, cache-hit rate, and a GitHub-style full-year
+  calendar heatmap of daily spend or token intensity, with the selected range highlighted and
+  the rest dimmed.
+- **Per-model stats** — cost share, daily stacked trends, message/session counts, and median
+  output tokens-per-second measured from your own traffic. Each row expands into its individual
+  variants (reasoning effort and friends); the provider is shown as a `provider/model` label.
+- **Agent & tool analytics** — which agents spend the money (same breakdown as models, variants
+  included); per-tool call counts, error rates, and p50/p95 durations.
+- **Skills** — how often each skill is loaded, split between preloaded by a task and invoked
+  directly, with the sessions, projects, and first/last use behind each one.
 - **Projects** — spend and activity per repository, including sessions from non-git directories.
-- **Session browser with transcripts** — drill into any session and read the conversation:
-  messages, tool calls with durations, reasoning, file patches, and errors.
+- **Session browser with transcripts** — expand any session into its subagent children, then read
+  the conversation: messages, tool calls with durations, reasoning, file patches, and errors.
 - **Reliability** — error breakdown by type, aborted-message rate, compactions, and retries.
 - **Project filter & time ranges** — a searchable project picker and 7d / 30d / 90d / MTD / All
   ranges, persisted across restarts.
 - **Multiple databases** — the default opencode database is detected automatically; add or remove
-  others manually and switch with one click.
+  others manually and switch with one click, or rebuild a source's index on demand.
 - **In-app updates** — a silent check at launch prompts you only when a new version exists; trigger
   it yourself from the app menu's **Check for Updates…** or **Settings → Updates**, and install with
   one click. The launch check can be disabled in **Settings → Preferences**.
@@ -60,7 +65,21 @@ for example per-profile databases created by [ocp](https://github.com/xterr/ocp)
 
 ## Install
 
-There are no packaged releases yet — build from source:
+Grab a build from the [latest release](https://github.com/xterr/chronotile/releases/latest):
+
+| Platform | Artifact |
+| --- | --- |
+| macOS (Apple Silicon + Intel) | `_macos_universal.dmg` |
+| Windows | `_windows_x64-setup.exe` (installer) or `_windows_x64.msi` |
+| Linux | `_linux_x86_64.AppImage`, `_linux_amd64.deb`, or `_linux_x86_64.rpm` |
+
+> [!IMPORTANT]
+> macOS builds are **not signed or notarized**, so Gatekeeper blocks the first launch. Allow it
+> once under **System Settings → Privacy & Security → Open Anyway**, or run
+> `xattr -dr com.apple.quarantine /Applications/Chronotile.app`. Right-click → **Open** no longer
+> works for unsigned apps on macOS 15 (Sequoia) and later.
+
+### Build from source
 
 ```sh
 git clone git@github.com:xterr/chronotile.git
@@ -70,23 +89,17 @@ yarn tauri build
 ```
 
 The bundled app lands in `src-tauri/target/release/bundle/` — `.app`/`.dmg` on macOS,
-NSIS installer and `.msi` on Windows, `.deb`/`.rpm`/`.AppImage` on Linux. Releases ship
-artifacts for all three platforms.
+NSIS installer and `.msi` on Windows, `.deb`/`.rpm`/`.AppImage` on Linux.
 
 **Prerequisites:** [Rust](https://rustup.rs) (stable), Node.js ≥ 20 with
 [corepack](https://nodejs.org/api/corepack.html) enabled (Chronotile uses Yarn 4), and the
 [Tauri platform dependencies](https://v2.tauri.app/start/prerequisites/) for your OS.
 
-> [!NOTE]
-> Release DMGs are currently unsigned, so macOS Gatekeeper will warn on first launch.
-> Right-click the app → **Open**, or allow it under **System Settings → Privacy & Security →
-> Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Chronotile.app`.
-
 ## Quick start
 
-1. Launch Chronotile — your default opencode database
-   (`~/.local/share/opencode/opencode.db`) is detected automatically and indexed in the
-   background (a few seconds per gigabyte, one time only).
+1. Launch Chronotile — your default opencode database (`~/.local/share/opencode/opencode.db`,
+   or `~/Library/Application Support/opencode/opencode.db` on macOS) is detected automatically
+   and indexed in the background (a few seconds per gigabyte, one time only).
 2. Add more databases via **Settings → Data sources** or the database menu in the top bar —
    useful for [ocp](https://github.com/xterr/ocp) profile databases.
 3. Pick a project and a time range in the top bar; every page follows.
@@ -118,15 +131,16 @@ migrations that require re-ingesting the sources.
 
 | Page | What it shows |
 | --- | --- |
-| **Overview** | Stat cards, daily cost, daily token mix, 12-month heatmap |
+| **Overview** | Stat cards, daily cost, daily token mix, full-year heatmap |
 | **Activity** | Messages & sessions per day, working-hours punch card |
-| **Models** | Cost share donut, stacked daily cost, per-model table with p50 tok/s |
+| **Models** | Cost share donut, stacked daily cost, per-model table with p50 tok/s, expandable per variant |
 | **Agents** | The same breakdown, keyed by agent |
 | **Tools** | Call counts, error rates, p50/p95 durations per tool |
+| **Skills** | Loads per skill split into preloaded-by-task vs. invoked-directly, with sessions and projects |
 | **Projects** | Spend per repository, with per-directory attribution for non-git work |
-| **Sessions** | Filterable session list with full transcript drill-down |
+| **Sessions** | Filterable session tree with subagent children and full transcript drill-down |
 | **Reliability** | Errors by type, compactions, retries |
-| **Settings** | Theme, heatmap metric, data-source management |
+| **Settings** | Theme, heatmap metric, data sources, updates, launch-check preference |
 
 ## Data & privacy
 
@@ -162,7 +176,7 @@ yarn build                                         # vite production build
 cargo check --manifest-path src-tauri/Cargo.toml   # rust
 ```
 
-The frontend lives in `src/` (React 19, Tailwind 4, shadcn/ui, Recharts); the backend in
+The frontend lives in `src/` (React 19, Tailwind 4, shadcn/ui, Recharts, TanStack Query); the backend in
 `src-tauri/src/` — `cache/` holds the ingest engine, migrations, and read layer. Logo proposals
 and brand assets live in `design/`.
 
@@ -176,16 +190,19 @@ git push origin 0.2.0
 ```
 
 Pushing the tag triggers [`release.yml`](.github/workflows/release.yml): it stamps the tag's version
-into `tauri.conf.json`, `package.json`, and the Cargo manifests, builds a universal macOS bundle
-(Apple Silicon + Intel), generates release notes from the conventional-commit history with
-[git-cliff](https://git-cliff.org), and publishes a GitHub Release with the `.dmg` attached. After a
+into `tauri.conf.json`, `package.json`, and the Cargo manifests, builds on macOS (universal —
+Apple Silicon + Intel), Windows, and Linux in parallel, generates release notes from the
+conventional-commit history with [git-cliff](https://git-cliff.org), and publishes a GitHub Release
+with every artifact attached: `.dmg`, `-setup.exe`, `.msi`, `.AppImage`, `.deb`, and `.rpm`. After a
 successful release, a follow-up job commits the version bumps and the regenerated `CHANGELOG.md`
 back to `main` — no manual version editing anywhere.
 
 Builds are [signed and notarized](https://v2.tauri.app/distribute/sign/macos/) automatically when
-the repository has the following secrets (otherwise the DMG ships unsigned): `APPLE_CERTIFICATE`
-(base64 `.p12` with a *Developer ID Application* identity), `APPLE_CERTIFICATE_PASSWORD`, and — for
-notarization — `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID`.
+the repository has the following secrets: `APPLE_CERTIFICATE` (base64 `.p12` with a *Developer ID
+Application* identity), `APPLE_CERTIFICATE_PASSWORD`, and — for notarization — `APPLE_ID`,
+`APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID`. These are **not** currently
+configured, so published macOS builds ship unsigned (ad-hoc signature only) and Gatekeeper blocks
+them on first launch.
 
 In-app updates ship alongside the release when the `TAURI_SIGNING_PRIVATE_KEY` secret (and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, if the key has one) is configured: the workflow then also
