@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { formatCount, formatDate } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
@@ -38,12 +38,16 @@ const TOP_SKILLS = 15
 export function SkillsPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
-  const skills = useQuery(() => api.skillStats(rangeArgs), [rangeArgs], enabled)
+  const skills = useQuery({
+    queryKey: ["skillStats", rangeArgs],
+    queryFn: () => api.skillStats(rangeArgs),
+    enabled,
+  })
 
   const rows = useMemo(() => skills.data ?? [], [skills.data])
   const chartRows = useMemo(() => rows.slice(0, TOP_SKILLS), [rows])
 
-  if (!skills.loading && rows.length === 0) {
+  if (!skills.isLoading && rows.length === 0) {
     return (
       <Card>
         <CardHeader>

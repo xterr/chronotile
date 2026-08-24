@@ -25,7 +25,7 @@ import {
   chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api, type RangeArgs } from "@/lib/api"
 import { formatCost, formatCount, formatTokens } from "@/lib/format"
 import { heatmapWindowStart } from "@/lib/heatmap"
@@ -53,36 +53,36 @@ const tokenConfig = {
 } satisfies ChartConfig
 
 export function OverviewPage() {
-  const { rangeArgs, activePath, range, anchor, selectedProject, cacheStatus } =
+  const { rangeArgs, activePath, range, anchor, selectedProject } =
     useDashboard()
   const { settings } = useSettings()
   const enabled = activePath !== null
-  const overview = useQuery(() => api.overview(rangeArgs), [rangeArgs], enabled)
-  const daily = useQuery(() => api.dailySeries(rangeArgs), [rangeArgs], enabled)
+  const overview = useQuery({
+    queryKey: ["overview", rangeArgs],
+    queryFn: () => api.overview(rangeArgs),
+    enabled,
+  })
+  const daily = useQuery({
+    queryKey: ["dailySeries", rangeArgs],
+    queryFn: () => api.dailySeries(rangeArgs),
+    enabled,
+  })
 
-  // Quantising to the day holds the heatmap window still across the anchor bump
-  // that every range click triggers; the ingest epoch still refetches new data.
-  const dayAnchor = useMemo(() => {
-    const day = new Date(anchor)
-    day.setHours(0, 0, 0, 0)
-    return day.getTime()
-  }, [anchor])
-  const ingestEpoch = cacheStatus?.ingestEpoch ?? 0
   const heatmapArgs = useMemo<RangeArgs>(() => {
     const args: RangeArgs = {
       dbPaths: activePath ? [activePath] : [],
-      from: heatmapWindowStart(dayAnchor).getTime(),
+      from: heatmapWindowStart(anchor).getTime(),
     }
     if (selectedProject) {
       args.project = selectedProject
     }
     return args
-  }, [activePath, dayAnchor, selectedProject])
-  const heatmap = useQuery(
-    () => api.dailySeries(heatmapArgs),
-    [heatmapArgs, ingestEpoch],
-    enabled
-  )
+  }, [activePath, anchor, selectedProject])
+  const heatmap = useQuery({
+    queryKey: ["dailySeries", heatmapArgs],
+    queryFn: () => api.dailySeries(heatmapArgs),
+    enabled,
+  })
 
   const data = overview.data
   const totalTokens = data
@@ -113,9 +113,10 @@ export function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <StatCard
           emphasis="primary"
+          className="col-span-2"
           label="Total cost"
           value={data ? formatCost(data.cost) : null}
           hint={
@@ -124,6 +125,7 @@ export function OverviewPage() {
         />
         <StatCard
           emphasis="primary"
+          className="col-span-2"
           label="Tokens"
           value={data ? formatTokens(totalTokens) : null}
           hint={
@@ -132,9 +134,6 @@ export function OverviewPage() {
               : undefined
           }
         />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard
           label="Prompts"
           value={data ? formatCount(data.prompts) : null}
@@ -269,7 +268,7 @@ export function OverviewPage() {
           <CalendarHeatmap
             days={heatmap.data ?? []}
             metric={settings.heatmapMetric}
-            anchor={dayAnchor}
+            anchor={anchor}
             focusFrom={rangeArgs.from}
             focusTo={rangeArgs.to}
           />

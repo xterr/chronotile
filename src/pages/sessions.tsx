@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronRight, LoaderCircle } from "lucide-react"
 
 import { SessionSheet } from "@/components/session-sheet"
@@ -28,7 +29,7 @@ import {
 import {
   api,
   type RangeArgs,
-  type SessionPage,
+  type SessionCursor,
   type SessionRow,
 } from "@/lib/api"
 import {
@@ -127,8 +128,6 @@ function SessionsBrowser({
   query,
   activePath,
 }: SessionsBrowserProps) {
-  const [pages, setPages] = useState<SessionPage[]>([])
-  const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [extra, setExtra] = useState<Map<string, SessionRow[]>>(new Map())
   const [openSession, setOpenSession] = useState<SessionRow | null>(null)
@@ -137,41 +136,36 @@ function SessionsBrowser({
 
   const searching = query.trim().length > 0
 
-  const fetchPage = useCallback(
-    (cursor?: SessionPage["nextCursor"]) =>
+  const {
+    data,
+    isFetching: loading,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["sessionRoots", rangeArgs, query],
+    queryFn: ({ pageParam }) =>
       searching
         ? api.searchSessions({
             ...rangeArgs,
             query,
-            cursor: cursor ?? undefined,
+            cursor: pageParam ?? undefined,
             limit: SEARCH_PAGE,
           })
         : api.sessionRoots({
             ...rangeArgs,
-            cursor: cursor ?? undefined,
+            cursor: pageParam ?? undefined,
             limit: ROOT_PAGE,
             inlineChildren: INLINE_CHILDREN,
           }),
-    [rangeArgs, query, searching]
+    initialPageParam: null as SessionCursor | null,
+    getNextPageParam: (last) => last.nextCursor,
+  })
+
+  const rows = useMemo(
+    () => data?.pages.flatMap((page) => page.rows) ?? [],
+    [data]
   )
-
-  useEffect(() => {
-    let cancelled = false
-    fetchPage()
-      .then((page) => {
-        if (!cancelled) setPages([page])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [fetchPage])
-
-  const rows = useMemo(() => pages.flatMap((page) => page.rows), [pages])
-  const nextCursor = pages[pages.length - 1]?.nextCursor ?? null
-  const total = pages[0]?.total ?? null
+  const total = data?.pages[0]?.total ?? null
 
   const childrenOf = useCallback(
     (session: SessionRow) => [
@@ -180,14 +174,6 @@ function SessionsBrowser({
     ],
     [extra]
   )
-
-  const loadMoreRoots = () => {
-    if (!nextCursor || loading) return
-    setLoading(true)
-    fetchPage(nextCursor)
-      .then((page) => setPages((current) => [...current, page]))
-      .finally(() => setLoading(false))
-  }
 
   const loadChildren = useCallback(
     async (session: SessionRow) => {
@@ -474,13 +460,13 @@ function SessionsBrowser({
           )}
         </TableBody>
       </Table>
-      {nextCursor && (
+      {hasNextPage && (
         <div className="flex justify-center pt-4">
           <Button
             variant="outline"
             size="sm"
             disabled={loading}
-            onClick={loadMoreRoots}
+            onClick={() => void fetchNextPage()}
           >
             {loading ? <LoaderCircle className="animate-spin" /> : null}
             Load more

@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { formatCount, formatDuration } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
@@ -38,7 +38,11 @@ const TOP_TOOLS = 15
 export function ToolsPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
-  const tools = useQuery(() => api.toolStats(rangeArgs), [rangeArgs], enabled)
+  const tools = useQuery({
+    queryKey: ["toolStats", rangeArgs],
+    queryFn: () => api.toolStats(rangeArgs),
+    enabled,
+  })
 
   const rows = useMemo(() => tools.data ?? [], [tools.data])
   const chartRows = useMemo(() => rows.slice(0, TOP_TOOLS), [rows])

@@ -4,7 +4,6 @@ import { AppSidebar, type Page } from "@/components/app-sidebar"
 import { ProfileMenu } from "@/components/profile-menu"
 import { ProjectPicker } from "@/components/project-picker"
 import { RangePicker } from "@/components/range-picker"
-import { Separator } from "@/components/ui/separator"
 import { UpdatePrompt } from "@/components/update-prompt"
 import {
   SidebarInset,
@@ -56,8 +55,7 @@ function Shell() {
           className="absolute inset-x-0 top-0 z-20 flex h-14 items-center gap-2 border-b border-transparent bg-background px-4 transition-[background-color,border-color,box-shadow] duration-200 ease-out data-scrolled:border-border supports-backdrop-filter:bg-background/72 supports-backdrop-filter:backdrop-blur-xl supports-backdrop-filter:backdrop-saturate-150 supports-backdrop-filter:data-scrolled:bg-background/80"
         >
           <SidebarTrigger />
-          <Separator orientation="vertical" className="mr-1" />
-          <h1 className="text-sm font-semibold tracking-title">
+          <h1 className="ml-1 text-sm font-semibold tracking-title">
             {PAGES[page].title}
           </h1>
           <div className="ml-auto flex items-center gap-2">

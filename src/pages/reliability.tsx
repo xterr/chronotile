@@ -18,7 +18,7 @@ import {
   chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { chartColor, formatCount } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
@@ -26,8 +26,16 @@ import { useDashboard } from "@/state/dashboard-context"
 export function ReliabilityPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
-  const report = useQuery(() => api.reliability(rangeArgs), [rangeArgs], enabled)
-  const overview = useQuery(() => api.overview(rangeArgs), [rangeArgs], enabled)
+  const report = useQuery({
+    queryKey: ["reliability", rangeArgs],
+    queryFn: () => api.reliability(rangeArgs),
+    enabled,
+  })
+  const overview = useQuery({
+    queryKey: ["overview", rangeArgs],
+    queryFn: () => api.overview(rangeArgs),
+    enabled,
+  })
 
   const data = report.data
   const totalErrors = data?.errors.reduce((sum, e) => sum + e.count, 0) ?? 0
@@ -65,7 +73,10 @@ export function ReliabilityPage() {
           label="Overflow compactions"
           value={data ? formatCount(data.compactionsOverflow) : null}
         />
-        <StatCard label="Retries" value={data ? formatCount(data.retries) : null} />
+        <StatCard
+          label="Retries"
+          value={data ? formatCount(data.retries) : null}
+        />
       </div>
 
       <Card>

@@ -31,7 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api, type ProjectStat } from "@/lib/api"
 import { chartColor, formatCost, formatCount, formatTokens } from "@/lib/format"
 import { ProjectKindIcon } from "@/components/project-kind-icon"
@@ -55,11 +55,11 @@ function totalTokens(project: ProjectStat): number {
 export function ProjectsPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
-  const projects = useQuery(
-    () => api.projectStats(rangeArgs),
-    [rangeArgs],
-    enabled
-  )
+  const projects = useQuery({
+    queryKey: ["projectStats", rangeArgs],
+    queryFn: () => api.projectStats(rangeArgs),
+    enabled,
+  })
 
   const rows = useMemo(() => projects.data ?? [], [projects.data])
   const { config, data } = useMemo(() => {

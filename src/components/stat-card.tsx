@@ -12,6 +12,7 @@ interface StatCardProps {
   value: string | null
   hint?: string
   emphasis?: "default" | "primary"
+  className?: string
 }
 
 export function StatCard({
@@ -19,11 +20,12 @@ export function StatCard({
   value,
   hint,
   emphasis = "default",
+  className,
 }: StatCardProps) {
   const isPrimary = emphasis === "primary"
 
   return (
-    <Card className={cn("gap-1 py-4", isPrimary && "py-5")}>
+    <Card className={cn("gap-1 py-4", isPrimary && "py-5", className)}>
       <CardHeader className={cn("px-4", isPrimary && "px-5")}>
         <CardDescription>{label}</CardDescription>
         {value === null ? (

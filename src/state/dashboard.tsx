@@ -6,10 +6,10 @@ import {
   useState,
   type ReactNode,
 } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
   api,
-  type CacheStatus,
   type Profile,
   type ProjectOption,
   type RangeArgs,
@@ -18,6 +18,11 @@ import { DashboardContext, type RangePreset } from "@/state/dashboard-context"
 import { loadSettings, useSettings } from "@/state/settings-context"
 
 const STATUS_POLL_MS = 5000
+const STATUS_KEY = "cacheStatus"
+const PROFILES_KEY = "profiles"
+const SHELL_KEYS = new Set<string>([STATUS_KEY, PROFILES_KEY])
+const EMPTY_PROFILES: Profile[] = []
+const EMPTY_PROJECTS: ProjectOption[] = []
 
 const RANGE_DAYS: Record<Exclude<RangePreset, "all" | "mtd">, number> = {
   "7d": 7,
@@ -38,98 +43,117 @@ function rangeStart(
   return anchor - RANGE_DAYS[range] * 86_400_000
 }
 
+/* Facts are day-grain, so the anchor is too. A stable anchor keeps query keys
+   identical while the range is toggled back and forth; freshness comes from
+   explicit invalidation on a new ingest, not from a moving key. */
+function dayStart(now: number): number {
+  const day = new Date(now)
+  day.setHours(0, 0, 0, 0)
+  return day.getTime()
+}
+
 function pickDefault(profiles: Profile[]): string | null {
   const preferred = profiles.find((p) => p.isDefault) ?? profiles[0]
   return preferred?.path ?? null
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
   const { update: updateSettings } = useSettings()
-  const [profiles, setProfiles] = useState<Profile[]>([])
   const [activePath, setActivePath] = useState<string | null>(
     () => loadSettings().activeDatabase
   )
   const [range, setRangeState] = useState<RangePreset>(
     () => loadSettings().defaultRange
   )
-  const [anchor, setAnchor] = useState(() => Date.now())
-  const [loadingProfiles, setLoadingProfiles] = useState(true)
-  const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null)
-  const [projectOptions, setProjectOptions] = useState<ProjectOption[]>([])
+  const [anchor, setAnchor] = useState(() => dayStart(Date.now()))
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const lastEpoch = useRef<number | null>(null)
+
+  const profilesQuery = useQuery({
+    queryKey: [PROFILES_KEY],
+    queryFn: () => api.listProfiles(),
+  })
+  const profiles = useMemo(
+    () => profilesQuery.data ?? EMPTY_PROFILES,
+    [profilesQuery.data]
+  )
+  const loadingProfiles = profilesQuery.isPending
+
+  const { data: cacheStatus = null } = useQuery({
+    queryKey: [STATUS_KEY],
+    queryFn: () => api.cacheStatus(),
+    refetchInterval: STATUS_POLL_MS,
+    staleTime: 0,
+  })
+
+  const { data: projectOptions = EMPTY_PROJECTS } = useQuery({
+    queryKey: ["projects", activePath],
+    queryFn: () => api.listProjects(activePath ? [activePath] : []),
+    enabled: activePath !== null,
+  })
+
+  /* An ingest only changes rollup data. The status poll must not invalidate
+     itself, and the database registry only changes when the user edits it. */
+  const invalidateData = useCallback(
+    () =>
+      queryClient.invalidateQueries({
+        predicate: (query) => !SHELL_KEYS.has(String(query.queryKey[0])),
+      }),
+    [queryClient]
+  )
 
   const setRange = useCallback(
     (next: RangePreset) => {
       setRangeState(next)
-      setAnchor(Date.now())
+      setAnchor(dayStart(Date.now()))
       updateSettings({ defaultRange: next })
     },
     [updateSettings]
   )
 
   const refreshProfiles = useCallback(async () => {
-    try {
-      const found = await api.listProfiles()
-      setProfiles(found)
-      setActivePath((current) => {
-        if (current && found.some((f) => f.path === current)) return current
-        return pickDefault(found)
-      })
-    } finally {
-      setLoadingProfiles(false)
-    }
-  }, [])
+    await profilesQuery.refetch()
+  }, [profilesQuery])
 
-  useEffect(() => {
-    void refreshProfiles()
-  }, [refreshProfiles])
+  const [pickedFor, setPickedFor] = useState<Profile[] | null>(null)
+  if (profilesQuery.isSuccess && pickedFor !== profiles) {
+    setPickedFor(profiles)
+    setActivePath((current) =>
+      current && profiles.some((f) => f.path === current)
+        ? current
+        : pickDefault(profiles)
+    )
+  }
 
   useEffect(() => {
     if (loadingProfiles) return
     updateSettings({ activeDatabase: activePath })
   }, [activePath, loadingProfiles, updateSettings])
 
+  const ingestEpoch = cacheStatus?.ingestEpoch ?? null
   useEffect(() => {
-    let cancelled = false
-    const poll = async () => {
-      try {
-        const status = await api.cacheStatus()
-        if (cancelled) return
-        setCacheStatus(status)
-        if (
-          lastEpoch.current !== null &&
-          status.ingestEpoch !== lastEpoch.current
-        ) {
-          setAnchor(Date.now())
-        }
-        lastEpoch.current = status.ingestEpoch
-      } catch {
-        // backend not ready yet; retry on next tick
-      }
+    if (ingestEpoch === null) return
+    if (lastEpoch.current !== null && ingestEpoch !== lastEpoch.current) {
+      void invalidateData()
     }
-    void poll()
-    const interval = setInterval(() => void poll(), STATUS_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [])
+    lastEpoch.current = ingestEpoch
+  }, [ingestEpoch, invalidateData])
 
   const refreshData = useCallback(async () => {
     const status = await api.refreshCache()
-    setCacheStatus(status)
     lastEpoch.current = status.ingestEpoch
-    setAnchor(Date.now())
-  }, [])
+    queryClient.setQueryData([STATUS_KEY], status)
+    await invalidateData()
+  }, [queryClient, invalidateData])
 
   const rebuildData = useCallback(async () => {
     if (!activePath) return
     const status = await api.rebuildCache(activePath)
-    setCacheStatus(status)
     lastEpoch.current = status.ingestEpoch
-    setAnchor(Date.now())
-  }, [activePath])
+    queryClient.setQueryData([STATUS_KEY], status)
+    await invalidateData()
+  }, [activePath, queryClient, invalidateData])
 
   const selectPath = useCallback((path: string) => {
     setActivePath(path)
@@ -139,21 +163,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const selectProject = useCallback((project: string | null) => {
     setSelectedProject(project)
   }, [])
-
-  const ingestEpoch = cacheStatus?.ingestEpoch ?? 0
-  useEffect(() => {
-    let cancelled = false
-    const paths = activePath ? [activePath] : []
-    const load = paths.length
-      ? api.listProjects(paths).catch(() => [])
-      : Promise.resolve([])
-    load.then((options) => {
-      if (!cancelled) setProjectOptions(options)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [activePath, ingestEpoch])
 
   const addDatabase = useCallback(
     async (path: string) => {

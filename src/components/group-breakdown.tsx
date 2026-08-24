@@ -40,7 +40,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api, type GroupStat } from "@/lib/api"
 import { chartColor, formatCost, formatCount, formatTokens } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
@@ -105,19 +105,19 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
       if (!next.delete(key)) next.add(key)
       return next
     })
-  const stats = useQuery(
-    () =>
+  const stats = useQuery({
+    queryKey: ["groupStats", rangeArgs, groupBy],
+    queryFn: () =>
       groupBy === "model"
         ? api.modelStats(rangeArgs)
         : api.agentStats(rangeArgs),
-    [rangeArgs, groupBy],
-    enabled
-  )
-  const dailyByKey = useQuery(
-    () => api.modelDaily({ ...rangeArgs, groupBy }),
-    [rangeArgs, groupBy],
-    enabled
-  )
+    enabled,
+  })
+  const dailyByKey = useQuery({
+    queryKey: ["modelDaily", rangeArgs, groupBy],
+    queryFn: () => api.modelDaily({ ...rangeArgs, groupBy }),
+    enabled,
+  })
 
   const rows = useMemo(() => stats.data ?? [], [stats.data])
   const totalCost = useMemo(

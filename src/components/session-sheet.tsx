@@ -9,7 +9,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api, type PartView, type SessionRow } from "@/lib/api"
 import { formatCost, formatDuration, formatTokens } from "@/lib/format"
 
@@ -34,7 +34,7 @@ function ToolPart({ part }: { part: PartView }) {
           </Badge>
         )}
         {part.durationMs !== null && (
-          <span className="tabular-nums text-muted-foreground">
+          <span className="text-muted-foreground tabular-nums">
             {formatDuration(part.durationMs)}
           </span>
         )}
@@ -64,18 +64,20 @@ function MessagePart({ part }: { part: PartView }) {
   return (
     <div className="text-sm">
       <p className="whitespace-pre-wrap">{part.text}</p>
-      {part.truncated && <span className="text-muted-foreground">… truncated</span>}
+      {part.truncated && (
+        <span className="text-muted-foreground">… truncated</span>
+      )}
     </div>
   )
 }
 
 export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
   const enabled = session !== null && dbPath !== null
-  const detail = useQuery(
-    () => api.sessionDetail(dbPath ?? "", session?.id ?? ""),
-    [session?.id, dbPath],
+  const detail = useQuery({
+    queryKey: ["sessionDetail", dbPath, session?.id],
+    queryFn: () => api.sessionDetail(dbPath ?? "", session?.id ?? ""),
     enabled,
-  )
+  })
 
   const messages = detail.data ?? []
 
@@ -104,7 +106,7 @@ export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-          {detail.loading && (
+          {detail.isLoading && (
             <div className="flex flex-col gap-3">
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-24 w-full" />
@@ -112,9 +114,9 @@ export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
             </div>
           )}
           {detail.error && (
-            <p className="text-sm text-destructive">{detail.error}</p>
+            <p className="text-sm text-destructive">{String(detail.error)}</p>
           )}
-          {!detail.loading &&
+          {!detail.isLoading &&
             messages.map((message) => (
               <div key={message.id} className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -124,7 +126,9 @@ export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
                     <Bot className="size-3.5" />
                   )}
                   <span className="font-medium text-foreground">
-                    {message.role === "user" ? "You" : (message.model ?? "assistant")}
+                    {message.role === "user"
+                      ? "You"
+                      : (message.model ?? "assistant")}
                   </span>
                   {message.agent && message.role === "assistant" && (
                     <Badge variant="secondary" className="h-4 px-1 text-[10px]">
@@ -149,7 +153,9 @@ export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
                 )}
                 <div
                   className={`flex flex-col gap-1.5 rounded-lg border p-3 ${
-                    message.role === "user" ? "border-primary/30 bg-primary/5" : ""
+                    message.role === "user"
+                      ? "border-primary/30 bg-primary/5"
+                      : ""
                   }`}
                 >
                   {message.parts.length === 0 ? (

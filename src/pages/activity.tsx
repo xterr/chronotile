@@ -16,7 +16,7 @@ import {
   chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { useQuery } from "@/hooks/use-query"
+import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { useDashboard } from "@/state/dashboard-context"
 
@@ -28,8 +28,16 @@ const activityConfig = {
 export function ActivityPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
-  const daily = useQuery(() => api.dailySeries(rangeArgs), [rangeArgs], enabled)
-  const hourly = useQuery(() => api.hourlyActivity(rangeArgs), [rangeArgs], enabled)
+  const daily = useQuery({
+    queryKey: ["dailySeries", rangeArgs],
+    queryFn: () => api.dailySeries(rangeArgs),
+    enabled,
+  })
+  const hourly = useQuery({
+    queryKey: ["hourlyActivity", rangeArgs],
+    queryFn: () => api.hourlyActivity(rangeArgs),
+    enabled,
+  })
 
   const rows = useMemo(
     () =>
@@ -38,7 +46,7 @@ export function ActivityPage() {
         messages: d.messages,
         sessions: d.sessions,
       })),
-    [daily.data],
+    [daily.data]
   )
 
   return (
@@ -46,7 +54,9 @@ export function ActivityPage() {
       <Card>
         <CardHeader>
           <CardTitle>Messages & sessions per day</CardTitle>
-          <CardDescription>Assistant responses and distinct sessions</CardDescription>
+          <CardDescription>
+            Assistant responses and distinct sessions
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <ChartContainer config={activityConfig} className="h-72 w-full">
@@ -81,7 +91,9 @@ export function ActivityPage() {
       <Card>
         <CardHeader>
           <CardTitle>Working hours</CardTitle>
-          <CardDescription>Assistant messages by weekday and hour</CardDescription>
+          <CardDescription>
+            Assistant messages by weekday and hour
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <PunchCard cells={hourly.data ?? []} />
