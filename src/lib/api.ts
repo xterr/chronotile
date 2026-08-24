@@ -110,6 +110,17 @@ export interface ToolStat {
   totalDurationMs: number
 }
 
+export interface SkillStat {
+  skill: string
+  loads: number
+  viaTask: number
+  direct: number
+  sessions: number
+  projects: number
+  firstUsed: number
+  lastUsed: number
+}
+
 export interface ErrorStat {
   name: string
   count: number
@@ -232,6 +243,8 @@ export const api = {
     invoke<HourlyCell[]>("get_hourly_activity", { ...args }),
   toolStats: (args: RangeArgs) =>
     invoke<ToolStat[]>("get_tool_stats", { ...args }),
+  skillStats: (args: RangeArgs) =>
+    invoke<SkillStat[]>("get_skill_stats", { ...args }),
   reliability: (args: RangeArgs) =>
     invoke<ReliabilityReport>("get_reliability", { ...args }),
   sessionRoots: (

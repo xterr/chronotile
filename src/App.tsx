@@ -20,6 +20,7 @@ import { ProjectsPage } from "@/pages/projects"
 import { ReliabilityPage } from "@/pages/reliability"
 import { SessionsPage } from "@/pages/sessions"
 import { SettingsPage } from "@/pages/settings"
+import { SkillsPage } from "@/pages/skills"
 import { ToolsPage } from "@/pages/tools"
 import { useDashboard } from "@/state/dashboard-context"
 import { DashboardProvider } from "@/state/dashboard"
@@ -32,6 +33,7 @@ const PAGES: Record<Page, { title: string; component: () => React.ReactNode }> =
     models: { title: "Models", component: ModelsPage },
     agents: { title: "Agents", component: AgentsPage },
     tools: { title: "Tools", component: ToolsPage },
+    skills: { title: "Skills", component: SkillsPage },
     projects: { title: "Projects", component: ProjectsPage },
     sessions: { title: "Sessions", component: SessionsPage },
     reliability: { title: "Reliability", component: ReliabilityPage },

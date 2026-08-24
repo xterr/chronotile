@@ -8,7 +8,7 @@ mod stats;
 
 use cache::{CacheManager, CacheStatus};
 use db::Profile;
-use parts::{ReliabilityReport, ToolStat};
+use parts::{ReliabilityReport, SkillStat, ToolStat};
 use sessions::{SessionCursor, SessionPage};
 use stats::{DailyPoint, GroupStat, HourlyCell, ModelDailyPoint, Overview, ProjectStat, Range};
 use std::path::PathBuf;
@@ -330,6 +330,20 @@ async fn get_tool_stats(
 }
 
 #[tauri::command]
+async fn get_skill_stats(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    project: Option<String>,
+) -> Result<Vec<SkillStat>, String> {
+    cached_query(&state, db_paths, from, to, project, Vec::new(), |conn, p| {
+        cache::read::skill_stats(conn, p)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn get_reliability(
     state: tauri::State<'_, AppState>,
     db_paths: Vec<String>,
@@ -534,6 +548,7 @@ pub fn run() {
             get_project_stats,
             get_hourly_activity,
             get_tool_stats,
+            get_skill_stats,
             get_reliability,
             get_session_roots,
             get_session_children,

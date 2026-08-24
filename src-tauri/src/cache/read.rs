@@ -1,4 +1,4 @@
-use crate::parts::{ErrorStat, ReliabilityReport, ToolStat};
+use crate::parts::{ErrorStat, ReliabilityReport, SkillStat, ToolStat};
 use crate::stats::{
     percentile, DailyPoint, GroupStat, HourlyCell, ModelDailyPoint, Overview, ProjectStat,
     TokenTotals,
@@ -426,6 +426,38 @@ pub fn tool_stats(conn: &Connection, params: DayParams) -> Result<Vec<ToolStat>,
         }
     }
     out.sort_by(|a, b| b.calls.cmp(&a.calls));
+    Ok(out)
+}
+
+pub fn skill_stats(conn: &Connection, params: DayParams) -> Result<Vec<SkillStat>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT skill, SUM(via_task), SUM(direct), COUNT(DISTINCT session_id), \
+             COUNT(DISTINCT project_id), MIN(min_ts), MAX(max_ts) \
+             FROM fact_skills WHERE source_id = ?1 AND day BETWEEN ?2 AND ?3 AND (?4 IS NULL OR project_id = ?4) \
+             GROUP BY skill",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params, |row| {
+            let via_task: i64 = row.get(1)?;
+            let direct: i64 = row.get(2)?;
+            Ok(SkillStat {
+                skill: row.get(0)?,
+                loads: via_task + direct,
+                via_task,
+                direct,
+                sessions: row.get(3)?,
+                projects: row.get(4)?,
+                first_used: row.get(5)?,
+                last_used: row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    let mut out: Vec<SkillStat> = rows
+        .collect::<Result<_, _>>()
+        .map_err(|e: rusqlite::Error| e.to_string())?;
+    out.sort_by(|a, b| b.loads.cmp(&a.loads).then_with(|| a.skill.cmp(&b.skill)));
     Ok(out)
 }
 

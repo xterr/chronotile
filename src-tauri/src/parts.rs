@@ -12,6 +12,19 @@ pub struct ToolStat {
     pub total_duration_ms: f64,
 }
 
+#[derive(Debug, Serialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillStat {
+    pub skill: String,
+    pub loads: i64,
+    pub via_task: i64,
+    pub direct: i64,
+    pub sessions: i64,
+    pub projects: i64,
+    pub first_used: i64,
+    pub last_used: i64,
+}
+
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReliabilityReport {

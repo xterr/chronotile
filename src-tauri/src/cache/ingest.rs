@@ -35,7 +35,9 @@ const PART_PROJECTION: &str = "SELECT id, time_created, \
   COALESCE(json_extract(data,'$.auto'),0), \
   COALESCE(json_extract(data,'$.overflow'),0), \
   session_id, \
-  rowid \
+  rowid, \
+  json_extract(data,'$.state.input.load_skills'), \
+  json_extract(data,'$.state.input.name') \
   FROM part";
 
 struct MsgRow {
@@ -67,6 +69,8 @@ struct PartRow {
     overflow: i64,
     session_id: String,
     rowid: i64,
+    load_skills: Option<String>,
+    skill_name: Option<String>,
 }
 
 #[derive(Default)]
@@ -107,11 +111,28 @@ struct ToolAgg {
 }
 
 #[derive(Default)]
+struct SkillAgg {
+    via_task: i64,
+    direct: i64,
+    min_ts: i64,
+    max_ts: i64,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+struct SkillKey {
+    day: String,
+    skill: String,
+    session_id: String,
+    project_id: String,
+}
+
+#[derive(Default)]
 struct Batch {
     messages: HashMap<MsgKey, MsgAgg>,
     prompts: HashMap<(String, String), i64>,
     hourly: HashMap<(String, u8, String), i64>,
     tools: HashMap<(String, String, String), ToolAgg>,
+    skills: HashMap<SkillKey, SkillAgg>,
     events: HashMap<(String, String, String), i64>,
     durations: Vec<(String, String, String, f64)>,
     rates: Vec<RateSample>,
@@ -172,6 +193,8 @@ fn map_part_row(row: &rusqlite::Row) -> rusqlite::Result<PartRow> {
         overflow: row.get(8)?,
         session_id: row.get(9)?,
         rowid: row.get(10)?,
+        load_skills: row.get(11)?,
+        skill_name: row.get(12)?,
     })
 }
 
@@ -243,6 +266,64 @@ fn ingest_message(
     true
 }
 
+fn record_skill_use(
+    batch: &mut Batch,
+    row: &PartRow,
+    day: &str,
+    project: &str,
+    skill: &str,
+    via_task: bool,
+) {
+    let skill = skill.trim();
+    if skill.is_empty() {
+        return;
+    }
+    let agg = batch
+        .skills
+        .entry(SkillKey {
+            day: day.to_string(),
+            skill: skill.to_string(),
+            session_id: row.session_id.clone(),
+            project_id: project.to_string(),
+        })
+        .or_default();
+    if via_task {
+        agg.via_task += 1;
+    } else {
+        agg.direct += 1;
+    }
+    if agg.min_ts == 0 {
+        agg.min_ts = row.time_created;
+        agg.max_ts = row.time_created;
+    }
+    agg.min_ts = agg.min_ts.min(row.time_created);
+    agg.max_ts = agg.max_ts.max(row.time_created);
+}
+
+fn ingest_skills(row: &PartRow, day: &str, project: &str, batch: &mut Batch) {
+    match row.tool.as_str() {
+        "task" => {
+            let Some(raw) = row.load_skills.as_deref() else {
+                return;
+            };
+            let Ok(serde_json::Value::Array(items)) = serde_json::from_str(raw) else {
+                return;
+            };
+            for item in items {
+                if let Some(name) = item.as_str() {
+                    record_skill_use(batch, row, day, project, name, true);
+                }
+            }
+        }
+        "skill" => {
+            if let Some(name) = row.skill_name.as_deref() {
+                record_skill_use(batch, row, day, project, name, false);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn ingest_part(
     row: &PartRow,
     force: bool,
@@ -259,6 +340,7 @@ fn ingest_part(
             if !terminal && !aged && !force {
                 return false;
             }
+            ingest_skills(row, &day, &project, batch);
             let agg = batch
                 .tools
                 .entry((day.clone(), row.tool.clone(), project.clone()))
@@ -351,6 +433,27 @@ fn flush(cache: &Connection, source_id: i64, batch: &mut Batch) -> Result<(), St
         for ((day, tool, project), agg) in batch.tools.drain() {
             stmt.execute(rusqlite::params![
                 source_id, day, tool, project, agg.calls, agg.completed, agg.errors, agg.total_duration,
+            ])
+            .map_err(|e| e.to_string())?;
+        }
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO fact_skills (source_id, day, skill, session_id, project_id, via_task, direct, min_ts, max_ts) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
+             ON CONFLICT(source_id, day, skill, session_id, project_id) DO UPDATE SET \
+             via_task = via_task + excluded.via_task, direct = direct + excluded.direct, \
+             min_ts = MIN(min_ts, excluded.min_ts), max_ts = MAX(max_ts, excluded.max_ts)",
+        ).map_err(|e| e.to_string())?;
+        for (key, agg) in batch.skills.drain() {
+            stmt.execute(rusqlite::params![
+                source_id,
+                key.day,
+                key.skill,
+                key.session_id,
+                key.project_id,
+                agg.via_task,
+                agg.direct,
+                agg.min_ts,
+                agg.max_ts,
             ])
             .map_err(|e| e.to_string())?;
         }

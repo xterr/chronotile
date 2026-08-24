@@ -37,6 +37,7 @@ src-tauri/target
 src-tauri/gen/schemas
 
 # Tooling state & test artifacts
+.opencode
 .omo/
 .playwright-mcp/
 .tmp/

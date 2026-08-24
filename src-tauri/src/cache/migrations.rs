@@ -124,6 +124,11 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: V5_ROWID_WATERMARKS,
         rebuild: true,
     },
+    Migration {
+        version: 6,
+        sql: V6_SKILL_FACTS,
+        rebuild: true,
+    },
 ];
 
 /// v3: adds the project dimension to all part/prompt-derived facts so every
@@ -250,11 +255,35 @@ DROP TABLE source;
 ALTER TABLE source_v5 RENAME TO source;
 ";
 
-pub const FACT_TABLES: [&str; 9] = [
+/// v6: skills are not a first-class entity in opencode's schema — a skill use is
+/// recorded inside a tool call's input: `task` carries a `load_skills` array of
+/// preloaded skills, and the `skill` tool carries the single `name` it invoked.
+/// This projects both into a day-grain fact so the Skills page can rank usage.
+/// `skill_mcp` is deliberately excluded: its `mcp_name` names an MCP server
+/// bundled with a skill, not the skill itself. Ingest semantics change, so the
+/// sources are re-ingested once.
+const V6_SKILL_FACTS: &str = "
+CREATE TABLE fact_skills (
+  source_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  skill TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  via_task INTEGER NOT NULL DEFAULT 0,
+  direct INTEGER NOT NULL DEFAULT 0,
+  min_ts INTEGER NOT NULL,
+  max_ts INTEGER NOT NULL,
+  PRIMARY KEY (source_id, day, skill, session_id, project_id)
+);
+CREATE INDEX fact_skills_idx ON fact_skills (source_id, day);
+";
+
+pub const FACT_TABLES: [&str; 10] = [
     "fact_messages",
     "fact_prompts",
     "fact_hourly",
     "fact_tools",
+    "fact_skills",
     "fact_events",
     "tool_durations",
     "rate_samples",

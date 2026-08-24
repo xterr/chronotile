@@ -7,6 +7,7 @@ import {
   ListTree,
   Settings,
   ShieldAlert,
+  Sparkles,
   Wrench,
 } from "lucide-react"
 
@@ -31,6 +32,7 @@ export type Page =
   | "models"
   | "agents"
   | "tools"
+  | "skills"
   | "projects"
   | "sessions"
   | "reliability"
@@ -42,6 +44,7 @@ const NAV: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: "models", label: "Models", icon: Cpu },
   { page: "agents", label: "Agents", icon: Bot },
   { page: "tools", label: "Tools", icon: Wrench },
+  { page: "skills", label: "Skills", icon: Sparkles },
   { page: "projects", label: "Projects", icon: FolderGit2 },
   { page: "sessions", label: "Sessions", icon: ListTree },
   { page: "reliability", label: "Reliability", icon: ShieldAlert },
