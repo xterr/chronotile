@@ -38,6 +38,11 @@ const TOP_TOOLS = 15
 export function ToolsPage() {
   const { rangeArgs, activePath } = useDashboard()
   const enabled = activePath !== null
+  const redundancy = useQuery({
+    queryKey: ["redundancy", rangeArgs],
+    queryFn: () => api.redundancy(rangeArgs),
+    enabled,
+  })
   const tools = useQuery({
     queryKey: ["toolStats", rangeArgs],
     queryFn: () => api.toolStats(rangeArgs),
@@ -141,6 +146,47 @@ export function ToolsPage() {
           </Table>
         </CardContent>
       </Card>
+      {redundancy.data && redundancy.data.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Repeated calls</CardTitle>
+            <CardDescription>
+              Identical arguments issued three or more times inside one session —
+              usually an agent going in circles
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tool</TableHead>
+                  <TableHead className="text-right">Repeated</TableHead>
+                  <TableHead className="text-right">Sessions</TableHead>
+                  <TableHead className="text-right">Share of calls</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {redundancy.data.slice(0, 15).map((row) => (
+                  <TableRow key={row.tool}>
+                    <TableCell className="font-medium">{row.tool}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatCount(row.repeatedCalls)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatCount(row.sessions)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {row.calls > 0
+                        ? `${((row.repeatedCalls / row.calls) * 100).toFixed(1)}%`
+                        : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

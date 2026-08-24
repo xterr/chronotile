@@ -8,6 +8,12 @@ use std::sync::atomic::Ordering;
 const BATCH_SIZE: usize = 20_000;
 const PENDING_MAX_AGE_MS: i64 = 24 * 3_600_000;
 
+/// How much per-message detail the quota view keeps. Long enough to cover a
+/// weekly limit with room to spare; everything older is served by the day-grain
+/// facts, so retaining more would grow the cache for no visible benefit.
+pub const SAMPLE_RETENTION_DAYS: i64 = 14;
+const SAMPLE_RETENTION_MS: i64 = SAMPLE_RETENTION_DAYS * 24 * 3_600_000;
+
 const MSG_PROJECTION: &str = "SELECT id, session_id, time_created, \
   COALESCE(json_extract(data,'$.role'),''), \
   COALESCE(json_extract(data,'$.providerID'),json_extract(data,'$.model.providerID'),'unknown'), \
@@ -22,6 +28,7 @@ const MSG_PROJECTION: &str = "SELECT id, session_id, time_created, \
   COALESCE(json_extract(data,'$.tokens.cache.write'),0), \
   json_extract(data,'$.time.completed'), \
   json_extract(data,'$.error.name'), \
+  json_extract(data,'$.error.data.message'), \
   COALESCE(json_extract(data,'$.finish'),''), \
   rowid \
   FROM message";
@@ -37,7 +44,11 @@ const PART_PROJECTION: &str = "SELECT id, time_created, \
   session_id, \
   rowid, \
   json_extract(data,'$.state.input.load_skills'), \
-  json_extract(data,'$.state.input.name') \
+  json_extract(data,'$.state.input.name'), \
+  json_extract(data,'$.state.error'), \
+  COALESCE(json_extract(data,'$.state.input.filePath'),json_extract(data,'$.state.input.path')), \
+  json_extract(data,'$.state.input'), \
+  json_extract(data,'$.files') \
   FROM part";
 
 struct MsgRow {
@@ -53,6 +64,7 @@ struct MsgRow {
     tokens: [i64; 5],
     completed: Option<i64>,
     error_name: Option<String>,
+    error_message: Option<String>,
     finish: String,
     rowid: i64,
 }
@@ -71,6 +83,10 @@ struct PartRow {
     rowid: i64,
     load_skills: Option<String>,
     skill_name: Option<String>,
+    error: Option<String>,
+    file_path: Option<String>,
+    input: Option<String>,
+    patch_files: Option<String>,
 }
 
 #[derive(Default)]
@@ -126,8 +142,49 @@ struct SkillKey {
     project_id: String,
 }
 
+struct UsageSample {
+    msg_id: String,
+    ts: i64,
+    provider: String,
+    model_id: String,
+    cost: f64,
+    tokens: [i64; 4],
+}
+
+#[derive(Default)]
+struct FileAgg {
+    reads: i64,
+    edits: i64,
+    writes: i64,
+}
+
+/// Failure text is truncated before it becomes part of a primary key: some
+/// errors embed a whole response body, and the point is to group recurring
+/// failures, not to archive every byte of one.
+const ERROR_TEXT_LIMIT: usize = 200;
+
+fn clip(text: &str, limit: usize) -> String {
+    let trimmed = text.trim();
+    match trimmed.char_indices().nth(limit) {
+        Some((at, _)) => trimmed[..at].to_string(),
+        None => trimmed.to_string(),
+    }
+}
+
+fn input_hash(tool: &str, input: &str) -> i64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tool.hash(&mut hasher);
+    input.hash(&mut hasher);
+    hasher.finish() as i64
+}
+
 #[derive(Default)]
 struct Batch {
+    samples: Vec<UsageSample>,
+    errors: HashMap<(String, String, String, String, String), i64>,
+    files: HashMap<(String, String, String), FileAgg>,
+    tool_calls: HashMap<(String, String, i64), (String, String, i64)>,
     messages: HashMap<MsgKey, MsgAgg>,
     prompts: HashMap<(String, String), i64>,
     hourly: HashMap<(String, u8, String), i64>,
@@ -175,8 +232,9 @@ fn map_msg_row(row: &rusqlite::Row) -> rusqlite::Result<MsgRow> {
         ],
         completed: row.get(14)?,
         error_name: row.get(15)?,
-        finish: row.get(16)?,
-        rowid: row.get(17)?,
+        error_message: row.get(16)?,
+        finish: row.get(17)?,
+        rowid: row.get(18)?,
     })
 }
 
@@ -195,6 +253,10 @@ fn map_part_row(row: &rusqlite::Row) -> rusqlite::Result<PartRow> {
         rowid: row.get(10)?,
         load_skills: row.get(11)?,
         skill_name: row.get(12)?,
+        error: row.get(13)?,
+        file_path: row.get(14)?,
+        input: row.get(15)?,
+        patch_files: row.get(16)?,
     })
 }
 
@@ -218,6 +280,16 @@ fn ingest_message(
     let aged = now - row.time_created > PENDING_MAX_AGE_MS;
     if !terminal && !aged && !force {
         return false;
+    }
+    if now - row.time_created <= SAMPLE_RETENTION_MS {
+        batch.samples.push(UsageSample {
+            msg_id: row.id.clone(),
+            ts: row.time_created,
+            provider: row.provider.clone(),
+            model_id: row.model_id.clone(),
+            cost: row.cost,
+            tokens: [row.tokens[0], row.tokens[1], row.tokens[3], row.tokens[4]],
+        });
     }
     let key = MsgKey {
         day: day.clone(),
@@ -248,6 +320,16 @@ fn ingest_message(
         *batch
             .events
             .entry((day.clone(), format!("error:{name}"), project.clone()))
+            .or_default() += 1;
+        *batch
+            .errors
+            .entry((
+                day.clone(),
+                "message".to_string(),
+                name.clone(),
+                clip(row.error_message.as_deref().unwrap_or_default(), ERROR_TEXT_LIMIT),
+                project.clone(),
+            ))
             .or_default() += 1;
     }
     if let Some(completed) = row.completed {
@@ -341,6 +423,29 @@ fn ingest_part(
                 return false;
             }
             ingest_skills(row, &day, &project, batch);
+            if let Some(input) = &row.input {
+                let entry = batch
+                    .tool_calls
+                    .entry((
+                        row.session_id.clone(),
+                        row.tool.clone(),
+                        input_hash(&row.tool, input),
+                    ))
+                    .or_insert_with(|| (day.clone(), project.clone(), 0));
+                entry.2 += 1;
+            }
+            if let Some(path) = &row.file_path {
+                let agg = batch
+                    .files
+                    .entry((day.clone(), path.clone(), project.clone()))
+                    .or_default();
+                match row.tool.as_str() {
+                    "read" => agg.reads += 1,
+                    "edit" => agg.edits += 1,
+                    "write" => agg.writes += 1,
+                    _ => {}
+                }
+            }
             let agg = batch
                 .tools
                 .entry((day.clone(), row.tool.clone(), project.clone()))
@@ -359,6 +464,16 @@ fn ingest_part(
                 }
             } else if row.status == "error" {
                 agg.errors += 1;
+                *batch
+                    .errors
+                    .entry((
+                        day.clone(),
+                        "tool".to_string(),
+                        row.tool.clone(),
+                        clip(row.error.as_deref().unwrap_or_default(), ERROR_TEXT_LIMIT),
+                        project.clone(),
+                    ))
+                    .or_default() += 1;
             }
             true
         }
@@ -381,6 +496,24 @@ fn ingest_part(
                 .events
                 .entry((day, "retry".to_string(), project))
                 .or_default() += 1;
+            true
+        }
+        // A patch names every file it touched, which attributes edits that the
+        // edit/write tools alone would miss.
+        "patch" => {
+            if let Some(raw) = row.patch_files.as_deref() {
+                if let Ok(serde_json::Value::Array(files)) = serde_json::from_str(raw) {
+                    for file in files {
+                        if let Some(path) = file.as_str() {
+                            batch
+                                .files
+                                .entry((day.clone(), path.to_string(), project.clone()))
+                                .or_default()
+                                .edits += 1;
+                        }
+                    }
+                }
+            }
             true
         }
         _ => true,
@@ -488,6 +621,67 @@ fn flush(cache: &Connection, source_id: i64, batch: &mut Batch) -> Result<(), St
                 sample.variant,
                 sample.project_id,
                 sample.tps
+            ])
+            .map_err(|e| e.to_string())?;
+        }
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO fact_errors (source_id, day, scope, name, message, project_id, count) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7) \
+             ON CONFLICT(source_id, day, scope, name, message, project_id) DO UPDATE SET \
+             count = count + excluded.count",
+        ).map_err(|e| e.to_string())?;
+        for ((day, scope, name, message, project), count) in batch.errors.drain() {
+            stmt.execute(rusqlite::params![source_id, day, scope, name, message, project, count])
+                .map_err(|e| e.to_string())?;
+        }
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO fact_files (source_id, day, path, project_id, reads, edits, writes) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7) \
+             ON CONFLICT(source_id, day, path, project_id) DO UPDATE SET \
+             reads = reads + excluded.reads, edits = edits + excluded.edits, \
+             writes = writes + excluded.writes",
+        ).map_err(|e| e.to_string())?;
+        for ((day, path, project), agg) in batch.files.drain() {
+            stmt.execute(rusqlite::params![
+                source_id, day, path, project, agg.reads, agg.edits, agg.writes
+            ])
+            .map_err(|e| e.to_string())?;
+        }
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO fact_tool_calls (source_id, session_id, tool, input_hash, day, project_id, calls) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7) \
+             ON CONFLICT(source_id, session_id, tool, input_hash) DO UPDATE SET \
+             calls = calls + excluded.calls",
+        ).map_err(|e| e.to_string())?;
+        for ((session_id, tool, hash), (day, project, calls)) in batch.tool_calls.drain() {
+            stmt.execute(rusqlite::params![
+                source_id, session_id, tool, hash, day, project, calls
+            ])
+            .map_err(|e| e.to_string())?;
+        }
+        let mut stmt = tx
+            .prepare_cached(
+                "INSERT INTO usage_sample (source_id, msg_id, ts, provider, model_id, cost, \
+                 tok_input, tok_output, tok_cache_read, tok_cache_write) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
+                 ON CONFLICT(source_id, msg_id) DO UPDATE SET \
+                 cost = excluded.cost, tok_input = excluded.tok_input, \
+                 tok_output = excluded.tok_output, tok_cache_read = excluded.tok_cache_read, \
+                 tok_cache_write = excluded.tok_cache_write",
+            )
+            .map_err(|e| e.to_string())?;
+        for sample in batch.samples.drain(..) {
+            stmt.execute(rusqlite::params![
+                source_id,
+                sample.msg_id,
+                sample.ts,
+                sample.provider,
+                sample.model_id,
+                sample.cost,
+                sample.tokens[0],
+                sample.tokens[1],
+                sample.tokens[2],
+                sample.tokens[3],
             ])
             .map_err(|e| e.to_string())?;
         }
@@ -791,6 +985,12 @@ pub fn refresh_source(manager: &CacheManager, path: &str) -> Result<u64, String>
         ingested += scan_table(
             manager, &source, &cache, source_id, path, "part", &projects, now,
         )?;
+        cache
+            .execute(
+                "DELETE FROM usage_sample WHERE source_id = ?1 AND ts < ?2",
+                rusqlite::params![source_id, now - SAMPLE_RETENTION_MS],
+            )
+            .map_err(|e| e.to_string())?;
         cache
             .execute(
                 "UPDATE source SET time_refreshed = ?1 WHERE id = ?2",

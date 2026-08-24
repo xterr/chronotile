@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { ChevronRight, LoaderCircle } from "lucide-react"
 
 import { SessionSheet } from "@/components/session-sheet"
+import { StatCard } from "@/components/stat-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -89,8 +90,35 @@ export function SessionsPage() {
     return () => clearTimeout(timer)
   }, [search])
 
+  const costs = useQuery({
+    queryKey: ["sessionCosts", rangeArgs],
+    queryFn: () => api.sessionCosts(rangeArgs),
+    enabled: activePath !== null,
+  })
+
   return (
-    <Card>
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard
+          label="Sessions"
+          value={costs.data ? formatCount(costs.data.sessions) : null}
+        />
+        <StatCard
+          label="Median session"
+          value={costs.data ? formatCost(costs.data.p50) : null}
+          hint="half cost less than this"
+        />
+        <StatCard
+          label="p95 session"
+          value={costs.data ? formatCost(costs.data.p95) : null}
+          hint="1 in 20 costs more"
+        />
+        <StatCard
+          label="Most expensive"
+          value={costs.data ? formatCost(costs.data.max) : null}
+        />
+      </div>
+      <Card>
       <CardHeader>
         <CardTitle>Sessions</CardTitle>
         <CardDescription>
@@ -113,7 +141,8 @@ export function SessionsPage() {
           activePath={activePath}
         />
       )}
-    </Card>
+      </Card>
+    </div>
   )
 }
 

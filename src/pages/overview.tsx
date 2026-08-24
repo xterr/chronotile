@@ -26,8 +26,14 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { useQuery } from "@tanstack/react-query"
-import { api, type RangeArgs } from "@/lib/api"
-import { formatCost, formatCount, formatTokens } from "@/lib/format"
+import { api, type RangeArgs, type TokenTotals } from "@/lib/api"
+import {
+  formatCost,
+  formatCostMode,
+  formatCount,
+  formatTokens,
+  resolveCost,
+} from "@/lib/format"
 import { heatmapWindowStart } from "@/lib/heatmap"
 import { useDashboard, type RangePreset } from "@/state/dashboard-context"
 import { useSettings } from "@/state/settings-context"
@@ -38,6 +44,17 @@ const RANGE_TITLES: Record<RangePreset, string> = {
   "90d": "Last 90 days",
   mtd: "Month to date",
   all: "All time",
+  custom: "Custom range",
+}
+
+function sumTokens(tokens: TokenTotals): number {
+  return (
+    tokens.input +
+    tokens.output +
+    tokens.reasoning +
+    tokens.cacheRead +
+    tokens.cacheWrite
+  )
 }
 
 const costConfig = {
@@ -56,6 +73,7 @@ export function OverviewPage() {
   const { rangeArgs, activePath, range, anchor, selectedProject } =
     useDashboard()
   const { settings } = useSettings()
+  const costMode = settings.costMode
   const enabled = activePath !== null
   const overview = useQuery({
     queryKey: ["overview", rangeArgs],
@@ -67,6 +85,28 @@ export function OverviewPage() {
     queryFn: () => api.dailySeries(rangeArgs),
     enabled,
   })
+
+  /* The previous period is the same span immediately before this one. "All time"
+     has nothing to compare against, so the comparison is simply absent there
+     rather than invented. */
+  const previousArgs = useMemo<RangeArgs | null>(() => {
+    if (rangeArgs.from === undefined) return null
+    const to = rangeArgs.to ?? anchor
+    const span = to - rangeArgs.from
+    if (span <= 0) return null
+    return { ...rangeArgs, from: rangeArgs.from - span, to: rangeArgs.from - 1 }
+  }, [rangeArgs, anchor])
+
+  const previous = useQuery({
+    queryKey: ["overview", previousArgs],
+    queryFn: () => api.overview(previousArgs as RangeArgs),
+    enabled: enabled && previousArgs !== null,
+  })
+
+  const changeVs = (current: number | undefined, before: number | undefined) => {
+    if (current === undefined || before === undefined || before <= 0) return null
+    return (current - before) / before
+  }
 
   const heatmapArgs = useMemo<RangeArgs>(() => {
     const args: RangeArgs = {
@@ -85,13 +125,31 @@ export function OverviewPage() {
   })
 
   const data = overview.data
-  const totalTokens = data
-    ? data.tokens.input +
-      data.tokens.output +
-      data.tokens.reasoning +
-      data.tokens.cacheRead +
-      data.tokens.cacheWrite
-    : 0
+  const totalTokens = data ? sumTokens(data.tokens) : 0
+
+  /* Cost = usage x rate, so a change in spend splits into the part explained by
+     doing more work and the part explained by the blended price per token
+     moving — which happens when the model mix or the cache-hit ratio shifts.
+     The two components add back up to the total change by construction. */
+  const spendShift = useMemo(() => {
+    if (!data || !previous.data) return null
+    const nowTokens = sumTokens(data.tokens)
+    const beforeTokens = sumTokens(previous.data.tokens)
+    if (nowTokens <= 0 || beforeTokens <= 0) return null
+
+    const nowCost = resolveCost(data, costMode)
+    const beforeCost = resolveCost(previous.data, costMode)
+    const nowRate = nowCost / nowTokens
+    const beforeRate = beforeCost / beforeTokens
+    const total = nowCost - beforeCost
+    if (Math.abs(total) < 0.01) return null
+
+    return {
+      total,
+      usage: (nowTokens - beforeTokens) * beforeRate,
+      rate: (nowRate - beforeRate) * nowTokens,
+    }
+  }, [data, previous.data, costMode])
   const cacheHit = data
     ? data.tokens.cacheRead /
       Math.max(1, data.tokens.input + data.tokens.cacheRead)
@@ -101,32 +159,50 @@ export function OverviewPage() {
     () =>
       (daily.data ?? []).map((d) => ({
         date: d.date,
-        cost: d.cost,
+        cost: resolveCost(d, costMode),
         input: d.tokens.input,
         output: d.tokens.output,
         reasoning: d.tokens.reasoning,
         cacheRead: d.tokens.cacheRead,
         cacheWrite: d.tokens.cacheWrite,
       })),
-    [daily.data]
+    [daily.data, costMode]
   )
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-10">
         <StatCard
           emphasis="primary"
           className="col-span-2"
           label="Total cost"
-          value={data ? formatCost(data.cost) : null}
+          delta={changeVs(
+            data ? resolveCost(data, costMode) : undefined,
+            previous.data ? resolveCost(previous.data, costMode) : undefined
+          )}
+          value={data ? formatCostMode(data, costMode) : null}
           hint={
-            data ? `across ${formatCount(data.sessions)} sessions` : undefined
+            data
+              ? costMode === "both"
+                ? "estimated / reported"
+                : `across ${formatCount(data.sessions)} sessions`
+              : undefined
           }
         />
         <StatCard
           emphasis="primary"
           className="col-span-2"
           label="Tokens"
+          delta={changeVs(
+            totalTokens || undefined,
+            previous.data
+              ? previous.data.tokens.input +
+                previous.data.tokens.output +
+                previous.data.tokens.reasoning +
+                previous.data.tokens.cacheRead +
+                previous.data.tokens.cacheWrite
+              : undefined
+          )}
           value={data ? formatTokens(totalTokens) : null}
           hint={
             data
@@ -135,7 +211,14 @@ export function OverviewPage() {
           }
         />
         <StatCard
+          className="col-span-2"
+          label="Saved by caching"
+          value={data ? formatCost(data.cacheSavings) : null}
+          hint="versus sending every cached token fresh"
+        />
+        <StatCard
           label="Prompts"
+          delta={changeVs(data?.prompts, previous.data?.prompts)}
           value={data ? formatCount(data.prompts) : null}
         />
         <StatCard
@@ -151,6 +234,25 @@ export function OverviewPage() {
           value={data ? formatCount(data.activeDays) : null}
         />
       </div>
+
+      {spendShift && (
+        <p className="text-sm text-muted-foreground">
+          Spend is {spendShift.total > 0 ? "up" : "down"}{" "}
+          <span className="font-medium text-foreground">
+            {formatCost(Math.abs(spendShift.total))}
+          </span>{" "}
+          on the previous period —{" "}
+          <span className="font-medium text-foreground">
+            {formatCost(Math.abs(spendShift.usage))}
+          </span>{" "}
+          from {spendShift.usage >= 0 ? "more" : "less"} usage and{" "}
+          <span className="font-medium text-foreground">
+            {formatCost(Math.abs(spendShift.rate))}
+          </span>{" "}
+          from a {spendShift.rate >= 0 ? "higher" : "lower"} blended rate per
+          token.
+        </p>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

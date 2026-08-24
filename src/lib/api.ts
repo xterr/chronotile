@@ -1,5 +1,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core"
 
+const MODELS_DEV_URL = "https://models.dev/api.json"
+
 let activeRequests = 0
 const loadingListeners = new Set<() => void>()
 
@@ -46,6 +48,8 @@ export interface TokenTotals {
 
 export interface Overview {
   cost: number
+  costEstimated: number
+  cacheSavings: number
   tokens: TokenTotals
   messages: number
   prompts: number
@@ -58,6 +62,7 @@ export interface Overview {
 export interface DailyPoint {
   date: string
   cost: number
+  costEstimated: number
   tokens: TokenTotals
   messages: number
   sessions: number
@@ -68,6 +73,7 @@ export interface GroupStat {
   provider: string | null
   variant: string | null
   cost: number
+  costEstimated: number
   tokens: TokenTotals
   messages: number
   sessions: number
@@ -81,6 +87,7 @@ export interface ModelDailyPoint {
   date: string
   key: string
   cost: number
+  costEstimated: number
   totalTokens: number
 }
 
@@ -89,6 +96,7 @@ export interface ProjectStat {
   name: string
   worktree: string
   cost: number
+  costEstimated: number
   tokens: TokenTotals
   messages: number
   sessions: number
@@ -132,6 +140,45 @@ export interface ReliabilityReport {
   compactionsManual: number
   compactionsOverflow: number
   retries: number
+}
+
+export interface ContextHealth {
+  windowDays: number
+  messages: number
+  p50: number
+  p95: number
+  max: number
+  nearLimit: number
+  nearLimitFraction: number
+}
+
+export interface SessionCostStats {
+  sessions: number
+  p50: number
+  p95: number
+  max: number
+}
+
+export interface ErrorDetail {
+  scope: string
+  name: string
+  message: string
+  count: number
+}
+
+export interface FileStat {
+  path: string
+  reads: number
+  edits: number
+  writes: number
+  touches: number
+}
+
+export interface RedundancyStat {
+  tool: string
+  calls: number
+  repeatedCalls: number
+  sessions: number
 }
 
 export interface SessionCursor {
@@ -195,6 +242,41 @@ export interface CacheStatus {
   sources: SourceStatus[]
 }
 
+export interface QuotaWindow {
+  start: number
+  end: number
+  active: boolean
+  cost: number
+  costEstimated: number
+  tokens: number
+  messages: number
+}
+
+export interface QuotaReport {
+  windowHours: number
+  windows: QuotaWindow[]
+  active: QuotaWindow | null
+  burnTokensPerMin: number
+  burnCostPerMin: number
+  projectedTokens: number
+  projectedCost: number
+  referenceTokens: number
+  warnFraction: number
+  weekTokens: number
+  weekCost: number
+  weekCostEstimated: number
+}
+
+export interface PricingStatus {
+  source: string
+  generated: string
+  bundled: boolean
+  models: number
+  ageHours: number | null
+  changed: boolean
+  unpricedModels: string[]
+}
+
 export interface PartView {
   kind: string
   text: string | null
@@ -204,6 +286,12 @@ export interface PartView {
   status: string | null
   durationMs: number | null
   files: number | null
+}
+
+export interface SessionDetailPage {
+  messages: MessageView[]
+  total: number
+  hasMore: boolean
 }
 
 export interface MessageView {
@@ -228,12 +316,25 @@ export const api = {
   rebuildCache: (path: string) =>
     invoke<CacheStatus>("rebuild_cache", { path }),
   cacheStatus: () => tauriInvoke<CacheStatus>("get_cache_status"),
+  pricingStatus: () => invoke<PricingStatus>("get_pricing_status"),
+  quota: (dbPaths: string[], windowHours: number) =>
+    invoke<QuotaReport>("get_quota", { dbPaths, windowHours }),
+  // The fetch lives here rather than in Rust so the backend never opens a
+  // socket: refreshing prices is the only moment Chronotile talks to models.dev,
+  // and it only happens because the user asked.
+  refreshPricing: async () => {
+    const response = await fetch(MODELS_DEV_URL)
+    if (!response.ok) {
+      throw new Error(`models.dev responded ${response.status}`)
+    }
+    return invoke<PricingStatus>("refresh_pricing", { catalog: await response.text() })
+  },
   overview: (args: RangeArgs) => invoke<Overview>("get_overview", { ...args }),
   dailySeries: (args: RangeArgs) =>
     invoke<DailyPoint[]>("get_daily_series", { ...args }),
   modelStats: (args: RangeArgs) =>
     invoke<GroupStat[]>("get_model_stats", { ...args }),
-  agentStats: (args: RangeArgs) =>
+  agentStats: (args: RangeArgs & { normalizeAgents: boolean }) =>
     invoke<GroupStat[]>("get_agent_stats", { ...args }),
   modelDaily: (args: RangeArgs & { groupBy: "model" | "agent" }) =>
     invoke<ModelDailyPoint[]>("get_model_daily", { ...args }),
@@ -247,6 +348,15 @@ export const api = {
     invoke<SkillStat[]>("get_skill_stats", { ...args }),
   reliability: (args: RangeArgs) =>
     invoke<ReliabilityReport>("get_reliability", { ...args }),
+  contextHealth: (dbPaths: string[]) =>
+    invoke<ContextHealth>("get_context_health", { dbPaths }),
+  sessionCosts: (args: RangeArgs) =>
+    invoke<SessionCostStats>("get_session_costs", { ...args }),
+  errorDetails: (args: RangeArgs) =>
+    invoke<ErrorDetail[]>("get_error_details", { ...args }),
+  fileStats: (args: RangeArgs) => invoke<FileStat[]>("get_file_stats", { ...args }),
+  redundancy: (args: RangeArgs) =>
+    invoke<RedundancyStat[]>("get_redundancy", { ...args }),
   sessionRoots: (
     args: RangeArgs & {
       cursor?: SessionCursor
@@ -263,6 +373,16 @@ export const api = {
   searchSessions: (
     args: RangeArgs & { query: string; cursor?: SessionCursor; limit: number }
   ) => invoke<SessionPage>("search_sessions", { ...args }),
-  sessionDetail: (dbPath: string, sessionId: string) =>
-    invoke<MessageView[]>("get_session_detail", { dbPath, sessionId }),
+  sessionDetail: (
+    dbPath: string,
+    sessionId: string,
+    offset: number,
+    limit: number
+  ) =>
+    invoke<SessionDetailPage>("get_session_detail", {
+      dbPath,
+      sessionId,
+      offset,
+      limit,
+    }),
 }

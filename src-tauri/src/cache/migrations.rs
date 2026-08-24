@@ -129,6 +129,26 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: V6_SKILL_FACTS,
         rebuild: true,
     },
+    Migration {
+        version: 7,
+        sql: V7_MODEL_PRICE,
+        rebuild: false,
+    },
+    Migration {
+        version: 8,
+        sql: V8_AGENT_IDENTITY,
+        rebuild: false,
+    },
+    Migration {
+        version: 9,
+        sql: V9_USAGE_SAMPLES,
+        rebuild: true,
+    },
+    Migration {
+        version: 10,
+        sql: V10_ERRORS_AND_FILES,
+        rebuild: true,
+    },
 ];
 
 /// v3: adds the project dimension to all part/prompt-derived facts so every
@@ -278,7 +298,123 @@ CREATE TABLE fact_skills (
 CREATE INDEX fact_skills_idx ON fact_skills (source_id, day);
 ";
 
-pub const FACT_TABLES: [&str; 10] = [
+/// v7: opencode only records a `cost` for metered API traffic — subscription and
+/// OAuth-plan messages are stored with `cost = 0`, which on a real database hides
+/// most of the usage from every cost metric. Token counts are always recorded, so
+/// cost is also derived from models.dev rates.
+///
+/// The rates live in the cache rather than in the facts on purpose: cost is then
+/// a join at read time, so refreshing the catalog (or correcting a rate) updates
+/// every historical number without re-ingesting a single source. Prices are not
+/// scoped to a source — they describe models, not databases — so this table is
+/// deliberately absent from FACT_TABLES and survives a source wipe.
+const V7_MODEL_PRICE: &str = "
+CREATE TABLE IF NOT EXISTS model_price (
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  input REAL NOT NULL DEFAULT 0,
+  output REAL NOT NULL DEFAULT 0,
+  cache_read REAL NOT NULL DEFAULT 0,
+  cache_write REAL NOT NULL DEFAULT 0,
+  context INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (provider, model_id)
+);
+";
+
+/// v8: opencode stores `agent` as a free-text display name with no id, and agent
+/// packs rename themselves between releases, so one agent can split across many
+/// spellings (including zero-width-prefixed ones that look identical on screen).
+///
+/// Facts keep the raw name. Grouping is resolved through this table at read
+/// time instead, which is what lets normalisation be a toggle rather than a
+/// re-ingest. The table is derived — rebuilt from the facts on every startup —
+/// so it is not a fact table and this migration needs no rebuild.
+const V8_AGENT_IDENTITY: &str = "
+CREATE TABLE IF NOT EXISTS agent_dim (
+  source_id INTEGER NOT NULL,
+  agent_raw TEXT NOT NULL,
+  agent_key TEXT NOT NULL,
+  display TEXT NOT NULL,
+  PRIMARY KEY (source_id, agent_raw)
+);
+CREATE INDEX IF NOT EXISTS agent_dim_key_idx ON agent_dim (source_id, agent_key);
+";
+
+/// v9: rolling quota windows (the 5-hour blocks subscription plans bill against)
+/// cannot be reconstructed from day-grain facts, so recent messages are also kept
+/// at their exact timestamp.
+///
+/// Retention is what keeps this affordable: a quota view only ever looks back far
+/// enough to cover a weekly limit, so samples older than that are pruned on every
+/// ingest. A database with 133k messages holds under 10k samples.
+///
+/// Keyed by message id because the pending re-check path re-processes a message
+/// once its cost settles, and a sample must not be counted twice.
+const V9_USAGE_SAMPLES: &str = "
+CREATE TABLE IF NOT EXISTS usage_sample (
+  source_id INTEGER NOT NULL,
+  msg_id TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  cost REAL NOT NULL DEFAULT 0,
+  tok_input INTEGER NOT NULL DEFAULT 0,
+  tok_output INTEGER NOT NULL DEFAULT 0,
+  tok_cache_read INTEGER NOT NULL DEFAULT 0,
+  tok_cache_write INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (source_id, msg_id)
+);
+CREATE INDEX IF NOT EXISTS usage_sample_ts_idx ON usage_sample (ts);
+";
+
+/// v10: three things opencode records that nothing surfaced.
+///
+/// `fact_errors` keeps the actual failure text, not just its class — the
+/// Reliability page could say "232 APIError" but never what went wrong.
+///
+/// `fact_files` is the one attribution opencode makes possible and no comparable
+/// tool offers: every read, edit and write carries its file path, so spend can be
+/// traced below the project level.
+///
+/// `fact_tool_calls` counts identical calls per session, keyed by a hash of the
+/// arguments. Repeats are the signal for an agent looping; storing the hash
+/// rather than the arguments keeps the row narrow.
+const V10_ERRORS_AND_FILES: &str = "
+CREATE TABLE IF NOT EXISTS fact_errors (
+  source_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  name TEXT NOT NULL,
+  message TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (source_id, day, scope, name, message, project_id)
+);
+CREATE TABLE IF NOT EXISTS fact_files (
+  source_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  path TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  reads INTEGER NOT NULL DEFAULT 0,
+  edits INTEGER NOT NULL DEFAULT 0,
+  writes INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (source_id, day, path, project_id)
+);
+CREATE INDEX IF NOT EXISTS fact_files_idx ON fact_files (source_id, day);
+CREATE TABLE IF NOT EXISTS fact_tool_calls (
+  source_id INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  input_hash INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (source_id, session_id, tool, input_hash)
+);
+CREATE INDEX IF NOT EXISTS fact_tool_calls_idx ON fact_tool_calls (source_id, day);
+";
+
+pub const FACT_TABLES: [&str; 14] = [
     "fact_messages",
     "fact_prompts",
     "fact_hourly",
@@ -287,6 +423,10 @@ pub const FACT_TABLES: [&str; 10] = [
     "fact_events",
     "tool_durations",
     "rate_samples",
+    "usage_sample",
+    "fact_errors",
+    "fact_files",
+    "fact_tool_calls",
     "project_dim",
     "pending",
 ];

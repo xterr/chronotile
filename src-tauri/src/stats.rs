@@ -29,6 +29,8 @@ pub struct TokenTotals {
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
     pub cost: f64,
+    pub cost_estimated: f64,
+    pub cache_savings: f64,
     pub tokens: TokenTotals,
     pub messages: i64,
     pub prompts: i64,
@@ -43,6 +45,7 @@ pub struct Overview {
 pub struct DailyPoint {
     pub date: String,
     pub cost: f64,
+    pub cost_estimated: f64,
     pub tokens: TokenTotals,
     pub messages: i64,
     pub sessions: i64,
@@ -55,6 +58,7 @@ pub struct GroupStat {
     pub provider: Option<String>,
     pub variant: Option<String>,
     pub cost: f64,
+    pub cost_estimated: f64,
     pub tokens: TokenTotals,
     pub messages: i64,
     pub sessions: i64,
@@ -70,6 +74,7 @@ pub struct ModelDailyPoint {
     pub date: String,
     pub key: String,
     pub cost: f64,
+    pub cost_estimated: f64,
     pub total_tokens: i64,
 }
 
@@ -80,6 +85,7 @@ pub struct ProjectStat {
     pub name: String,
     pub worktree: String,
     pub cost: f64,
+    pub cost_estimated: f64,
     pub tokens: TokenTotals,
     pub messages: i64,
     pub sessions: i64,

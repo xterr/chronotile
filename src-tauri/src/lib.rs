@@ -1,6 +1,8 @@
+mod agents;
 mod cache;
 mod db;
 mod parts;
+mod pricing;
 mod session_detail;
 mod sessions;
 mod sources;
@@ -9,6 +11,7 @@ mod stats;
 use cache::{CacheManager, CacheStatus};
 use db::Profile;
 use parts::{ReliabilityReport, SkillStat, ToolStat};
+use pricing::PricingStatus;
 use sessions::{SessionCursor, SessionPage};
 use stats::{DailyPoint, GroupStat, HourlyCell, ModelDailyPoint, Overview, ProjectStat, Range};
 use std::path::PathBuf;
@@ -18,6 +21,7 @@ use tauri::Manager;
 
 struct AppState {
     config_dir: PathBuf,
+    data_dir: PathBuf,
     cache: Arc<CacheManager>,
 }
 
@@ -89,9 +93,20 @@ async fn run_refresh(cache: Arc<CacheManager>, config_dir: PathBuf) -> u64 {
     let _guard = cache.ingest_lock.lock().await;
     let paths = known_paths(&config_dir);
     let cache_clone = cache.clone();
-    tauri::async_runtime::spawn_blocking(move || cache::ingest::refresh_all(&cache_clone, &paths))
-        .await
-        .unwrap_or(0)
+    tauri::async_runtime::spawn_blocking(move || {
+        let ingested = cache::ingest::refresh_all(&cache_clone, &paths);
+        // An ingest can introduce agent spellings the dimension has not seen,
+        // so it is rebuilt here rather than only at startup.
+        if let Err(err) = cache_clone
+            .open()
+            .and_then(|conn| cache_clone.sync_agents(&conn))
+        {
+            log::warn!("could not refresh agent identities: {err}");
+        }
+        ingested
+    })
+    .await
+    .unwrap_or(0)
 }
 
 async fn cached_query<T, F>(
@@ -215,6 +230,82 @@ fn get_cache_status(state: tauri::State<AppState>) -> CacheStatus {
     state.cache.status(&known_paths(&state.config_dir))
 }
 
+fn pricing_status(
+    cache: &CacheManager,
+    catalog: &pricing::Catalog,
+    changed: bool,
+) -> Result<PricingStatus, String> {
+    let conn = cache.open()?;
+    let age_hours = (!catalog.bundled)
+        .then(|| chrono::DateTime::parse_from_rfc3339(&catalog.generated).ok())
+        .flatten()
+        .map(|at| (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_hours());
+    Ok(PricingStatus {
+        source: catalog.source.clone(),
+        generated: catalog.generated.clone(),
+        bundled: catalog.bundled,
+        models: catalog.models.len() as i64,
+        age_hours,
+        changed,
+        unpriced_models: cache::read::unpriced_models(&conn)?,
+    })
+}
+
+/// Quota is deliberately not filtered by project or range: a rolling window is a
+/// property of the account, and a limit does not care which repository spent it.
+#[tauri::command]
+async fn get_quota(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    window_hours: i64,
+) -> Result<cache::read::QuotaReport, String> {
+    let cache = state.cache.clone();
+    let config_dir = state.config_dir.clone();
+    blocking(move || {
+        let path = db_paths.first().ok_or("no database selected")?;
+        db::validate_known_path(path, &sources::load(&config_dir))?;
+        let conn = cache.open()?;
+        let Some(source_id) = cache::read::resolve_source(&conn, path) else {
+            return Ok(cache::read::QuotaReport::default());
+        };
+        cache::read::quota(
+            &conn,
+            source_id,
+            chrono::Utc::now().timestamp_millis(),
+            window_hours,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_pricing_status(state: tauri::State<'_, AppState>) -> Result<PricingStatus, String> {
+    let cache = state.cache.clone();
+    let data_dir = state.data_dir.clone();
+    blocking(move || pricing_status(&cache, &pricing::load(&data_dir), false)).await
+}
+
+/// Takes the raw models.dev payload the webview fetched. Keeping the network
+/// call in the frontend is deliberate: the backend stays socket-free, so the
+/// app still makes no request the user did not explicitly ask for.
+#[tauri::command]
+async fn refresh_pricing(
+    state: tauri::State<'_, AppState>,
+    catalog: String,
+) -> Result<PricingStatus, String> {
+    let cache = state.cache.clone();
+    let data_dir = state.data_dir.clone();
+    blocking(move || {
+        let (stored, changed) = pricing::store(&data_dir, &catalog)?;
+        if changed {
+            let conn = cache.open()?;
+            cache.sync_prices(&conn, &stored)?;
+        }
+        pricing_status(&cache, &stored, changed)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn get_overview(
     state: tauri::State<'_, AppState>,
@@ -252,7 +343,7 @@ async fn get_model_stats(
     project: Option<String>,
 ) -> Result<Vec<GroupStat>, String> {
     cached_query(&state, db_paths, from, to, project, Vec::new(), |conn, p| {
-        cache::read::group_stats(conn, p, false)
+        cache::read::group_stats(conn, p, false, false)
     })
     .await
 }
@@ -264,9 +355,10 @@ async fn get_agent_stats(
     from: Option<i64>,
     to: Option<i64>,
     project: Option<String>,
+    normalize_agents: bool,
 ) -> Result<Vec<GroupStat>, String> {
-    cached_query(&state, db_paths, from, to, project, Vec::new(), |conn, p| {
-        cache::read::group_stats(conn, p, true)
+    cached_query(&state, db_paths, from, to, project, Vec::new(), move |conn, p| {
+        cache::read::group_stats(conn, p, true, normalize_agents)
     })
     .await
 }
@@ -360,6 +452,89 @@ async fn get_reliability(
         ReliabilityReport::default(),
         |conn, p| cache::read::reliability(conn, p),
     )
+    .await
+}
+
+#[tauri::command]
+async fn get_session_costs(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    project: Option<String>,
+) -> Result<cache::read::SessionCostStats, String> {
+    cached_query(
+        &state,
+        db_paths,
+        from,
+        to,
+        project,
+        cache::read::SessionCostStats::default(),
+        |conn, p| cache::read::session_costs(conn, p),
+    )
+    .await
+}
+
+/// Not range-filtered: utilisation is measured from the retained per-message
+/// samples, which already cover a fixed recent window.
+#[tauri::command]
+async fn get_context_health(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+) -> Result<cache::read::ContextHealth, String> {
+    let cache = state.cache.clone();
+    let config_dir = state.config_dir.clone();
+    blocking(move || {
+        let path = db_paths.first().ok_or("no database selected")?;
+        db::validate_known_path(path, &sources::load(&config_dir))?;
+        let conn = cache.open()?;
+        let Some(source_id) = cache::read::resolve_source(&conn, path) else {
+            return Ok(cache::read::ContextHealth::default());
+        };
+        cache::read::context_health(&conn, source_id, cache::ingest::SAMPLE_RETENTION_DAYS)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_error_details(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    project: Option<String>,
+) -> Result<Vec<cache::read::ErrorDetail>, String> {
+    cached_query(&state, db_paths, from, to, project, Vec::new(), |conn, p| {
+        cache::read::error_details(conn, p)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_file_stats(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    project: Option<String>,
+) -> Result<Vec<cache::read::FileStat>, String> {
+    cached_query(&state, db_paths, from, to, project, Vec::new(), |conn, p| {
+        cache::read::file_stats(conn, p)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_redundancy(
+    state: tauri::State<'_, AppState>,
+    db_paths: Vec<String>,
+    from: Option<i64>,
+    to: Option<i64>,
+    project: Option<String>,
+) -> Result<Vec<cache::read::RedundancyStat>, String> {
+    cached_query(&state, db_paths, from, to, project, Vec::new(), |conn, p| {
+        cache::read::redundancy(conn, p)
+    })
     .await
 }
 
@@ -479,12 +654,14 @@ async fn get_session_detail(
     state: tauri::State<'_, AppState>,
     db_path: String,
     session_id: String,
-) -> Result<Vec<session_detail::MessageView>, String> {
+    offset: i64,
+    limit: i64,
+) -> Result<session_detail::SessionDetailPage, String> {
     let config_dir = state.config_dir.clone();
     blocking(move || {
         db::validate_known_path(&db_path, &sources::load(&config_dir))?;
         let conn = db::open_readonly(&db_path)?;
-        session_detail::session_detail(&conn, &session_id)
+        session_detail::session_detail(&conn, &session_id, offset, limit)
     })
     .await
 }
@@ -520,8 +697,18 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             let cache = Arc::new(CacheManager::new(&data_dir).map_err(std::io::Error::other)?);
+            // Prices are joined at read time, so loading them here is enough to
+            // re-cost the whole history without touching a single fact row.
+            match cache.open().and_then(|conn| {
+                cache.sync_prices(&conn, &pricing::load(&data_dir))?;
+                cache.sync_agents(&conn)
+            }) {
+                Ok(()) => {}
+                Err(err) => log::warn!("could not load pricing or agent identities: {err}"),
+            }
             app.manage(AppState {
                 config_dir: config_dir.clone(),
+                data_dir: data_dir.clone(),
                 cache: cache.clone(),
             });
             tauri::async_runtime::spawn(async move {
@@ -540,6 +727,9 @@ pub fn run() {
             refresh_cache,
             rebuild_cache,
             get_cache_status,
+            get_pricing_status,
+            get_quota,
+            refresh_pricing,
             get_overview,
             get_daily_series,
             get_model_stats,
@@ -550,6 +740,11 @@ pub fn run() {
             get_tool_stats,
             get_skill_stats,
             get_reliability,
+            get_error_details,
+            get_session_costs,
+            get_context_health,
+            get_file_stats,
+            get_redundancy,
             get_session_roots,
             get_session_children,
             search_sessions,

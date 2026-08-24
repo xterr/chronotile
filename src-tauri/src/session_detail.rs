@@ -31,10 +31,31 @@ pub struct MessageView {
     pub parts: Vec<PartView>,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDetailPage {
+    pub messages: Vec<MessageView>,
+    pub total: i64,
+    pub has_more: bool,
+}
+
+/// Transcripts are paged by message. The largest session observed holds 4,497
+/// messages across 18,488 parts — around 142 MB of payload — which is far more
+/// than the webview can be handed in one response.
 pub fn session_detail(
     conn: &Connection,
     session_id: &str,
-) -> Result<Vec<MessageView>, String> {
+    offset: i64,
+    limit: i64,
+) -> Result<SessionDetailPage, String> {
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM message WHERE session_id = ?1",
+            [session_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
     let mut messages: Vec<MessageView> = {
         let mut stmt = conn
             .prepare(
@@ -48,11 +69,11 @@ pub fn session_detail(
                    + COALESCE(json_extract(data,'$.tokens.cache.write'),0), \
                  json_extract(data,'$.error.name'), \
                  time_created \
-                 FROM message WHERE session_id = ?1 ORDER BY id",
+                 FROM message WHERE session_id = ?1 ORDER BY id LIMIT ?2 OFFSET ?3",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([session_id], |row| {
+            .query_map(rusqlite::params![session_id, limit, offset], |row| {
                 Ok(MessageView {
                     id: row.get(0)?,
                     role: row.get(1)?,
@@ -75,6 +96,18 @@ pub fn session_detail(
         .map(|(i, m)| (m.id.clone(), i))
         .collect();
 
+    if messages.is_empty() {
+        return Ok(SessionDetailPage {
+            messages,
+            total,
+            has_more: false,
+        });
+    }
+
+    // Parts are fetched only for the messages on this page; scanning the whole
+    // session would defeat the paging entirely.
+    let placeholders = vec!["?"; messages.len()].join(",");
+    let message_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
     let mut stmt = conn
         .prepare(&format!(
             "SELECT message_id, \
@@ -87,12 +120,12 @@ pub fn session_detail(
              json_extract(data,'$.state.time.start'), \
              json_extract(data,'$.state.time.end'), \
              json_array_length(COALESCE(json_extract(data,'$.files'),'[]')) \
-             FROM part WHERE session_id = ?1 ORDER BY id",
+             FROM part WHERE message_id IN ({placeholders}) ORDER BY id",
             limit = TEXT_LIMIT + 1
         ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([session_id], |row| {
+        .query_map(rusqlite::params_from_iter(message_ids.iter()), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -168,5 +201,9 @@ pub fn session_detail(
     }
 
     messages.retain(|m| !m.parts.is_empty() || m.role == "assistant" || m.role == "user");
-    Ok(messages)
+    Ok(SessionDetailPage {
+        messages,
+        total,
+        has_more: offset + limit < total,
+    })
 }

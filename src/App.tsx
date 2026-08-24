@@ -16,6 +16,9 @@ import { AgentsPage } from "@/pages/agents"
 import { ModelsPage } from "@/pages/models"
 import { OverviewPage } from "@/pages/overview"
 import { ProjectsPage } from "@/pages/projects"
+import { FilesPage } from "@/pages/files"
+import { usePricingRefresh } from "@/hooks/use-pricing-refresh"
+import { QuotaPage } from "@/pages/quota"
 import { ReliabilityPage } from "@/pages/reliability"
 import { SessionsPage } from "@/pages/sessions"
 import { SettingsPage } from "@/pages/settings"
@@ -35,6 +38,8 @@ const PAGES: Record<Page, { title: string; component: () => React.ReactNode }> =
     skills: { title: "Skills", component: SkillsPage },
     projects: { title: "Projects", component: ProjectsPage },
     sessions: { title: "Sessions", component: SessionsPage },
+    quota: { title: "Quota", component: QuotaPage },
+    files: { title: "Files", component: FilesPage },
     reliability: { title: "Reliability", component: ReliabilityPage },
     settings: { title: "Settings", component: SettingsPage },
   }
@@ -43,6 +48,7 @@ function Shell() {
   const [page, setPage] = useState<Page>("overview")
   const [scrolled, setScrolled] = useState(false)
   const { profiles, loadingProfiles, activePath } = useDashboard()
+  usePricingRefresh(activePath !== null)
   const Current = PAGES[page].component
 
   return (

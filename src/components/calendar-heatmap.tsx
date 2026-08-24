@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { formatCost, formatTokens } from "@/lib/format"
+import { formatCost, formatTokens, resolveCost } from "@/lib/format"
 import {
   HEATMAP_WEEKS as WEEKS,
   heatmapWindowStart,
@@ -13,6 +13,7 @@ import {
   startOfDay,
 } from "@/lib/heatmap"
 import type { DailyPoint } from "@/lib/api"
+import type { CostMode } from "@/state/settings-context"
 
 const RAMP = ["bg-primary/25", "bg-primary/45", "bg-primary/70", "bg-primary"]
 
@@ -20,10 +21,11 @@ export type HeatmapMetric = "cost" | "tokens"
 
 function metricValue(
   point: DailyPoint | undefined,
-  metric: HeatmapMetric
+  metric: HeatmapMetric,
+  costMode: CostMode
 ): number {
   if (!point) return 0
-  if (metric === "cost") return point.cost
+  if (metric === "cost") return resolveCost(point, costMode)
   return (
     point.tokens.input +
     point.tokens.output +
@@ -61,6 +63,7 @@ interface Cell {
 interface CalendarHeatmapProps {
   days: DailyPoint[]
   metric?: HeatmapMetric
+  costMode?: CostMode
   /** Last day of the 12-month window. */
   anchor: number
   /** Start of the highlighted range; earlier days dim. Omit to highlight all. */
@@ -72,6 +75,7 @@ interface CalendarHeatmapProps {
 export function CalendarHeatmap({
   days,
   metric = "cost",
+  costMode = "estimated",
   anchor,
   focusFrom,
   focusTo,
@@ -101,7 +105,7 @@ export function CalendarHeatmap({
         }
         const future = date > end
         const point = byDate.get(date)
-        if (!future) values.push(metricValue(point, metric))
+        if (!future) values.push(metricValue(point, metric, costMode))
         cells.push({
           date,
           point,
@@ -115,7 +119,7 @@ export function CalendarHeatmap({
     }
 
     return { cells, labels, scale: buildScale(values) }
-  }, [days, metric, anchor, focusFrom, focusTo])
+  }, [days, metric, costMode, anchor, focusFrom, focusTo])
 
   const template = `repeat(${WEEKS}, minmax(0.625rem, 1fr))`
 
@@ -147,7 +151,7 @@ export function CalendarHeatmap({
                 <TooltipTrigger
                   render={
                     <div
-                      className={`aspect-square rounded-xs transition-[transform,opacity] duration-75 hover:z-10 hover:scale-150 hover:opacity-100 hover:ring-1 hover:ring-foreground/40 ${intensityClass(metricValue(cell.point, metric), view.scale)} ${cell.dimmed ? "opacity-30" : ""}`}
+                      className={`aspect-square rounded-xs transition-[transform,opacity] duration-75 hover:z-10 hover:scale-150 hover:opacity-100 hover:ring-1 hover:ring-foreground/40 ${intensityClass(metricValue(cell.point, metric, costMode), view.scale)} ${cell.dimmed ? "opacity-30" : ""}`}
                     />
                   }
                 />
@@ -155,7 +159,7 @@ export function CalendarHeatmap({
                   <div className="text-xs">
                     <div className="font-medium">{cell.date}</div>
                     <div>
-                      {formatCost(cell.point?.cost ?? 0)} ·{" "}
+                      {formatCost(cell.point ? resolveCost(cell.point, costMode) : 0)} ·{" "}
                       {formatTokens(
                         (cell.point?.tokens.input ?? 0) +
                           (cell.point?.tokens.output ?? 0) +

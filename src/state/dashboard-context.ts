@@ -2,7 +2,7 @@ import { createContext, useContext } from "react"
 
 import type { CacheStatus, Profile, ProjectOption, RangeArgs } from "@/lib/api"
 
-export type RangePreset = "7d" | "30d" | "90d" | "mtd" | "all"
+export type RangePreset = "7d" | "30d" | "90d" | "mtd" | "all" | "custom"
 
 export interface DashboardState {
   profiles: Profile[]
@@ -14,7 +14,10 @@ export interface DashboardState {
   cacheStatus: CacheStatus | null
   projectOptions: ProjectOption[]
   selectedProject: string | null
+  customFrom: string | null
+  customTo: string | null
   setRange: (range: RangePreset) => void
+  setCustomRange: (from: string | null, to: string | null) => void
   selectPath: (path: string) => void
   selectProject: (project: string | null) => void
   addDatabase: (path: string) => Promise<void>

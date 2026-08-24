@@ -1,6 +1,7 @@
 import { AlertCircle, Bot, FileDiff, User, Wrench } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetContent,
@@ -9,9 +10,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { api, type PartView, type SessionRow } from "@/lib/api"
-import { formatCost, formatDuration, formatTokens } from "@/lib/format"
+import {
+  formatCost,
+  formatCount,
+  formatDuration,
+  formatTokens,
+} from "@/lib/format"
+
+/** Messages per page. */
+const PAGE_SIZE = 50
 
 interface SessionSheetProps {
   session: SessionRow | null
@@ -73,13 +82,18 @@ function MessagePart({ part }: { part: PartView }) {
 
 export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
   const enabled = session !== null && dbPath !== null
-  const detail = useQuery({
+  const detail = useInfiniteQuery({
     queryKey: ["sessionDetail", dbPath, session?.id],
-    queryFn: () => api.sessionDetail(dbPath ?? "", session?.id ?? ""),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.sessionDetail(dbPath ?? "", session?.id ?? "", pageParam, PAGE_SIZE),
+    getNextPageParam: (last, pages) =>
+      last.hasMore ? pages.length * PAGE_SIZE : undefined,
     enabled,
   })
 
-  const messages = detail.data ?? []
+  const messages = detail.data?.pages.flatMap((page) => page.messages) ?? []
+  const total = detail.data?.pages[0]?.total ?? 0
 
   return (
     <Sheet
@@ -100,7 +114,7 @@ export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
             {session && (
               <>
                 {formatCost(session.cost)} · {formatTokens(session.totalTokens)}{" "}
-                tokens · {messages.length} messages
+                tokens · {formatCount(total)} messages
               </>
             )}
           </SheetDescription>
@@ -170,6 +184,19 @@ export function SessionSheet({ session, dbPath, onClose }: SessionSheetProps) {
                 </div>
               </div>
             ))}
+          {detail.hasNextPage ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-center"
+              disabled={detail.isFetchingNextPage}
+              onClick={() => void detail.fetchNextPage()}
+            >
+              {detail.isFetchingNextPage
+                ? "Loading…"
+                : `Load more (${formatCount(total - messages.length)} left)`}
+            </Button>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>

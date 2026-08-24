@@ -1,4 +1,6 @@
 import {
+  FileCode,
+  Gauge,
   Activity,
   Bot,
   Cpu,
@@ -28,24 +30,28 @@ import {
 
 export type Page =
   | "overview"
+  | "quota"
   | "activity"
   | "models"
   | "agents"
   | "tools"
   | "skills"
   | "projects"
+  | "files"
   | "sessions"
   | "reliability"
   | "settings"
 
 const NAV: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: "overview", label: "Overview", icon: LayoutDashboard },
+  { page: "quota", label: "Quota", icon: Gauge },
   { page: "activity", label: "Activity", icon: Activity },
   { page: "models", label: "Models", icon: Cpu },
   { page: "agents", label: "Agents", icon: Bot },
   { page: "tools", label: "Tools", icon: Wrench },
   { page: "skills", label: "Skills", icon: Sparkles },
   { page: "projects", label: "Projects", icon: FolderGit2 },
+  { page: "files", label: "Files", icon: FileCode },
   { page: "sessions", label: "Sessions", icon: ListTree },
   { page: "reliability", label: "Reliability", icon: ShieldAlert },
 ]

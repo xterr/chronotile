@@ -42,7 +42,15 @@ import {
 } from "@/components/ui/tooltip"
 import { useQuery } from "@tanstack/react-query"
 import { api, type GroupStat } from "@/lib/api"
-import { chartColor, formatCost, formatCount, formatTokens } from "@/lib/format"
+import {
+  chartColor,
+  formatCost,
+  formatCostMode,
+  formatCount,
+  formatTokens,
+  resolveCost,
+} from "@/lib/format"
+import { useSettings, type CostMode } from "@/state/settings-context"
 import { useDashboard } from "@/state/dashboard-context"
 
 const TOP_SERIES = 5
@@ -66,11 +74,11 @@ function groupLabel(stat: GroupStat): string {
   return stat.provider ? `${stat.provider}/${stat.key}` : stat.key
 }
 
-function StatCells({ stat }: { stat: GroupStat }) {
+function StatCells({ stat, costMode }: { stat: GroupStat; costMode: CostMode }) {
   return (
     <>
       <TableCell className="text-right tabular-nums">
-        {formatCost(stat.cost)}
+        {formatCostMode(stat, costMode)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {formatTokens(totalTokens(stat))}
@@ -96,6 +104,7 @@ function StatCells({ stat }: { stat: GroupStat }) {
 
 export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
   const { rangeArgs, activePath } = useDashboard()
+  const { costMode, normalizeAgents } = useSettings().settings
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const enabled = activePath !== null
 
@@ -106,11 +115,11 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
       return next
     })
   const stats = useQuery({
-    queryKey: ["groupStats", rangeArgs, groupBy],
+    queryKey: ["groupStats", rangeArgs, groupBy, normalizeAgents],
     queryFn: () =>
       groupBy === "model"
         ? api.modelStats(rangeArgs)
-        : api.agentStats(rangeArgs),
+        : api.agentStats({ ...rangeArgs, normalizeAgents }),
     enabled,
   })
   const dailyByKey = useQuery({
@@ -121,15 +130,15 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
 
   const rows = useMemo(() => stats.data ?? [], [stats.data])
   const totalCost = useMemo(
-    () => rows.reduce((sum, row) => sum + row.cost, 0),
-    [rows]
+    () => rows.reduce((sum, row) => sum + resolveCost(row, costMode), 0),
+    [rows, costMode]
   )
 
   const { shareConfig, shareData } = useMemo(() => {
     const totals = new Map<string, number>()
     for (const stat of rows) {
       const name = groupLabel(stat)
-      totals.set(name, (totals.get(name) ?? 0) + stat.cost)
+      totals.set(name, (totals.get(name) ?? 0) + resolveCost(stat, costMode))
     }
     const config: ChartConfig = {}
     const data = [...totals.entries()]
@@ -147,13 +156,13 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
         }
       })
     return { shareConfig: config, shareData: data }
-  }, [rows])
+  }, [rows, costMode])
 
   const { areaConfig, areaData, areaKeys } = useMemo(() => {
     const points = dailyByKey.data ?? []
     const totals = new Map<string, number>()
     for (const p of points) {
-      totals.set(p.key, (totals.get(p.key) ?? 0) + p.cost)
+      totals.set(p.key, (totals.get(p.key) ?? 0) + resolveCost(p, costMode))
     }
     const top = [...totals.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -164,7 +173,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
     for (const p of points) {
       const row = byDate.get(p.date) ?? { date: p.date }
       const key = keySet.has(p.key) ? p.key : "other"
-      row[key] = (Number(row[key]) || 0) + p.cost
+      row[key] = (Number(row[key]) || 0) + resolveCost(p, costMode)
       byDate.set(p.date, row)
     }
     const keys = [...top, "other"]
@@ -183,7 +192,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
       areaData,
       areaKeys: keys,
     }
-  }, [dailyByKey.data])
+  }, [dailyByKey.data, costMode])
 
   return (
     <div className="flex flex-col gap-4">
@@ -416,7 +425,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
                           ) : null}
                         </div>
                       </TableCell>
-                      <StatCells stat={stat} />
+                      <StatCells stat={stat} costMode={costMode} />
                     </TableRow>
                     {open
                       ? stat.variants.map((variant) => (
@@ -432,7 +441,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
                                 {variant.variant ?? "default"}
                               </Badge>
                             </TableCell>
-                            <StatCells stat={variant} />
+                            <StatCells stat={variant} costMode={costMode} />
                           </TableRow>
                         ))
                       : null}

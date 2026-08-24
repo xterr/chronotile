@@ -24,14 +24,23 @@ const SHELL_KEYS = new Set<string>([STATUS_KEY, PROFILES_KEY])
 const EMPTY_PROFILES: Profile[] = []
 const EMPTY_PROJECTS: ProjectOption[] = []
 
-const RANGE_DAYS: Record<Exclude<RangePreset, "all" | "mtd">, number> = {
+const RANGE_DAYS: Record<Exclude<RangePreset, "all" | "mtd" | "custom">, number> = {
   "7d": 7,
   "30d": 30,
   "90d": 90,
 }
 
+/** Parses a yyyy-mm-dd input as local midnight, matching the day-grain facts. */
+function parseDay(value: string, endOfDay = false): number | null {
+  const [year, month, day] = value.split("-").map(Number)
+  if (!year || !month || !day) return null
+  const at = new Date(year, month - 1, day)
+  if (endOfDay) at.setHours(23, 59, 59, 999)
+  return at.getTime()
+}
+
 function rangeStart(
-  range: Exclude<RangePreset, "all">,
+  range: Exclude<RangePreset, "all" | "custom">,
   anchor: number
 ): number {
   if (range === "mtd") {
@@ -67,6 +76,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     () => loadSettings().defaultRange
   )
   const [anchor, setAnchor] = useState(() => dayStart(Date.now()))
+  const [customFrom, setCustomFrom] = useState<string | null>(
+    () => loadSettings().customFrom
+  )
+  const [customTo, setCustomTo] = useState<string | null>(
+    () => loadSettings().customTo
+  )
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const lastEpoch = useRef<number | null>(null)
 
@@ -108,6 +123,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setRangeState(next)
       setAnchor(dayStart(Date.now()))
       updateSettings({ defaultRange: next })
+    },
+    [updateSettings]
+  )
+
+  const setCustomRange = useCallback(
+    (from: string | null, to: string | null) => {
+      setCustomFrom(from)
+      setCustomTo(to)
+      updateSettings({ customFrom: from, customTo: to })
     },
     [updateSettings]
   )
@@ -184,14 +208,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const rangeArgs = useMemo<RangeArgs>(() => {
     const args: RangeArgs = { dbPaths: activePath ? [activePath] : [] }
-    if (range !== "all") {
+    if (range === "custom") {
+      const from = customFrom ? parseDay(customFrom) : null
+      const to = customTo ? parseDay(customTo, true) : null
+      if (from !== null) args.from = from
+      if (to !== null) args.to = to
+    } else if (range !== "all") {
       args.from = rangeStart(range, anchor)
     }
     if (selectedProject) {
       args.project = selectedProject
     }
     return args
-  }, [activePath, range, anchor, selectedProject])
+  }, [activePath, range, anchor, selectedProject, customFrom, customTo])
 
   const value = useMemo(
     () => ({
@@ -204,7 +233,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       cacheStatus,
       projectOptions,
       selectedProject,
+      customFrom,
+      customTo,
       setRange,
+      setCustomRange,
       selectPath,
       selectProject,
       addDatabase,
@@ -223,7 +255,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       cacheStatus,
       projectOptions,
       selectedProject,
+      customFrom,
+      customTo,
       setRange,
+      setCustomRange,
       selectPath,
       selectProject,
       addDatabase,

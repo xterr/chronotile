@@ -2,6 +2,15 @@ import { useMemo } from "react"
 import { Pie, PieChart } from "recharts"
 
 import { StatCard } from "@/components/stat-card"
+import { Badge } from "@/components/ui/badge"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   Card,
   CardContent,
@@ -20,7 +29,7 @@ import {
 } from "@/components/ui/chart"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { chartColor, formatCount } from "@/lib/format"
+import { chartColor, formatCount, formatPercent } from "@/lib/format"
 import { useDashboard } from "@/state/dashboard-context"
 
 export function ReliabilityPage() {
@@ -34,6 +43,16 @@ export function ReliabilityPage() {
   const overview = useQuery({
     queryKey: ["overview", rangeArgs],
     queryFn: () => api.overview(rangeArgs),
+    enabled,
+  })
+  const context = useQuery({
+    queryKey: ["contextHealth", activePath],
+    queryFn: () => api.contextHealth(activePath ? [activePath] : []),
+    enabled,
+  })
+  const details = useQuery({
+    queryKey: ["errorDetails", rangeArgs],
+    queryFn: () => api.errorDetails(rangeArgs),
     enabled,
   })
 
@@ -107,6 +126,85 @@ export function ReliabilityPage() {
           )}
         </CardContent>
       </Card>
+      {context.data && context.data.messages > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Context window pressure</CardTitle>
+            <CardDescription>
+              How full each prompt was against its model's limit, over the last{" "}
+              {context.data.windowDays} days
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatCard
+                label="Median prompt"
+                value={formatPercent(context.data.p50)}
+                hint="of the window"
+              />
+              <StatCard
+                label="p95 prompt"
+                value={formatPercent(context.data.p95)}
+                hint="1 in 20 is larger"
+              />
+              <StatCard
+                label="Largest prompt"
+                value={formatPercent(context.data.max)}
+              />
+              <StatCard
+                label={`Above ${formatPercent(context.data.nearLimitFraction)}`}
+                value={formatCount(context.data.nearLimit)}
+                hint="messages at risk of context rot"
+              />
+            </div>
+            <span className="text-xs text-muted-foreground">
+              Accuracy tends to fall off well before a model's advertised limit,
+              so prompts above {formatPercent(context.data.nearLimitFraction)} are
+              worth trimming or compacting rather than left to run.
+            </span>
+          </CardContent>
+        </Card>
+      ) : null}
+      {details.data && details.data.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>What actually failed</CardTitle>
+            <CardDescription>
+              Most frequent failures, with the message opencode recorded
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-28">Source</TableHead>
+                  <TableHead className="w-44">Name</TableHead>
+                  <TableHead>Message</TableHead>
+                  <TableHead className="text-right">Count</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {details.data.slice(0, 25).map((detail, index) => (
+                  <TableRow key={index}>
+                    <TableCell>
+                      <Badge variant="outline">{detail.scope}</Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{detail.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <span className="line-clamp-2 font-mono text-xs">
+                        {detail.message || "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatCount(detail.count)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

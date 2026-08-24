@@ -33,7 +33,15 @@ import {
 } from "@/components/ui/tooltip"
 import { useQuery } from "@tanstack/react-query"
 import { api, type ProjectStat } from "@/lib/api"
-import { chartColor, formatCost, formatCount, formatTokens } from "@/lib/format"
+import {
+  chartColor,
+  formatCost,
+  formatCostMode,
+  formatCount,
+  formatTokens,
+  resolveCost,
+} from "@/lib/format"
+import { useSettings } from "@/state/settings-context"
 import { ProjectKindIcon } from "@/components/project-kind-icon"
 import { basename, isDirectoryProject, projectDisplayName } from "@/lib/paths"
 import { useDashboard } from "@/state/dashboard-context"
@@ -54,6 +62,7 @@ function totalTokens(project: ProjectStat): number {
 
 export function ProjectsPage() {
   const { rangeArgs, activePath } = useDashboard()
+  const costMode = useSettings().settings.costMode
   const enabled = activePath !== null
   const projects = useQuery({
     queryKey: ["projectStats", rangeArgs],
@@ -67,10 +76,10 @@ export function ProjectsPage() {
     const data = rows.slice(0, 9).map((project, i) => {
       const name = projectLabel(project)
       config[name] = { label: name, color: chartColor(i) }
-      return { name, cost: project.cost, fill: chartColor(i) }
+      return { name, cost: resolveCost(project, costMode), fill: chartColor(i) }
     })
     return { config, data }
-  }, [rows])
+  }, [rows, costMode])
 
   return (
     <div className="flex flex-col gap-4">
@@ -149,7 +158,7 @@ export function ProjectsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatCost(project.cost)}
+                    {formatCostMode(project, costMode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatTokens(totalTokens(project))}

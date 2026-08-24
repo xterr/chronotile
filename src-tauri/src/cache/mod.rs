@@ -64,6 +64,71 @@ impl CacheManager {
         Ok(conn)
     }
 
+    pub fn sync_prices(&self, conn: &Connection, catalog: &crate::pricing::Catalog) -> Result<(), String> {
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM model_price", [])
+            .map_err(|e| e.to_string())?;
+        {
+            let mut stmt = tx
+                .prepare(
+                    "INSERT INTO model_price (provider, model_id, input, output, cache_read, cache_write, context) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(provider, model_id) DO UPDATE SET \
+                     input = excluded.input, output = excluded.output, cache_read = excluded.cache_read, \
+                     cache_write = excluded.cache_write, context = excluded.context",
+                )
+                .map_err(|e| e.to_string())?;
+            for price in &catalog.models {
+                stmt.execute(rusqlite::params![
+                    price.provider,
+                    price.model,
+                    price.input,
+                    price.output,
+                    price.cache_read,
+                    price.cache_write,
+                    price.context,
+                ])
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+
+    /// Rebuilds the derived agent dimension from whatever raw names the facts
+    /// currently hold. Cheap enough to run on every startup (a database with
+    /// 133k messages has ~50 distinct agents), which keeps the mapping correct
+    /// after an ingest without the facts themselves ever being rewritten.
+    pub fn sync_agents(&self, conn: &Connection) -> Result<(), String> {
+        let raw: Vec<(i64, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT DISTINCT source_id, agent FROM fact_messages")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?
+        };
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        {
+            let mut stmt = tx
+                .prepare(
+                    "INSERT INTO agent_dim (source_id, agent_raw, agent_key, display) \
+                     VALUES (?1,?2,?3,?4) ON CONFLICT(source_id, agent_raw) DO UPDATE SET \
+                     agent_key = excluded.agent_key, display = excluded.display",
+                )
+                .map_err(|e| e.to_string())?;
+            for (source_id, agent) in &raw {
+                stmt.execute(rusqlite::params![
+                    source_id,
+                    agent,
+                    crate::agents::normalize_key(agent),
+                    crate::agents::clean_display(agent),
+                ])
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+
     pub fn source_id(&self, conn: &Connection, path: &str) -> Result<i64, String> {
         conn.execute(
             "INSERT INTO source (path) VALUES (?1) ON CONFLICT(path) DO NOTHING",
