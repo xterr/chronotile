@@ -15,6 +15,7 @@ import {
   ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import { useQuery } from "@/hooks/use-query"
@@ -87,6 +88,7 @@ export function ReliabilityPage() {
                   nameKey="name"
                   innerRadius={55}
                   strokeWidth={2}
+                  {...chartSeriesAnimation}
                 />
                 <ChartLegend content={<ChartLegendContent nameKey="name" />} />
               </PieChart>

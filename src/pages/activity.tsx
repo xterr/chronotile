@@ -13,6 +13,7 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import { useQuery } from "@/hooks/use-query"
@@ -60,8 +61,18 @@ export function ActivityPage() {
               />
               <YAxis tickLine={false} axisLine={false} width={40} />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="messages" fill="var(--color-messages)" radius={2} />
-              <Bar dataKey="sessions" fill="var(--color-sessions)" radius={2} />
+              <Bar
+                dataKey="messages"
+                fill="var(--color-messages)"
+                radius={2}
+                {...chartSeriesAnimation}
+              />
+              <Bar
+                dataKey="sessions"
+                fill="var(--color-sessions)"
+                radius={2}
+                {...chartSeriesAnimation}
+              />
             </BarChart>
           </ChartContainer>
         </CardContent>

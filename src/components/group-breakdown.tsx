@@ -24,6 +24,7 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import {
@@ -222,6 +223,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
                   nameKey="name"
                   innerRadius={55}
                   strokeWidth={2}
+                  {...chartSeriesAnimation}
                 >
                   <Label
                     content={({ viewBox }) => {
@@ -345,6 +347,7 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
                     fill={chartColor(index)}
                     fillOpacity={0.65}
                     stroke={chartColor(index)}
+                    {...chartSeriesAnimation}
                   />
                 ))}
               </AreaChart>

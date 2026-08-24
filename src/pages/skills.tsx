@@ -12,6 +12,7 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import {
@@ -84,12 +85,14 @@ export function SkillsPage() {
                 stackId="loads"
                 fill="var(--color-viaTask)"
                 radius={2}
+                {...chartSeriesAnimation}
               />
               <Bar
                 dataKey="direct"
                 stackId="loads"
                 fill="var(--color-direct)"
                 radius={2}
+                {...chartSeriesAnimation}
               />
             </BarChart>
           </ChartContainer>

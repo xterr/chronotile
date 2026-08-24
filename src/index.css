@@ -8,6 +8,18 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', sans-serif;
+    /* House curves: built-in CSS easings are too weak for UI. Durations stay under 300ms. */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+    --duration-press: 100ms;
+    --duration-fast: 150ms;
+    --duration-panel: 250ms;
+    /* Tracking is size-specific: large type needs negative, small type positive. */
+    --tracking-display: -0.022em;
+    --tracking-figure: -0.015em;
+    --tracking-title: -0.01em;
+    --tracking-micro: 0.01em;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -148,5 +160,35 @@
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
+    }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-slot="app-header"] {
+    background-color: var(--background);
+    backdrop-filter: none;
+    border-bottom-color: var(--border);
+    }
+}
+
+/* Reduced motion keeps opacity and colour changes - they aid comprehension -
+   and drops only movement, scaling and looping. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    }
+  [data-slot="dialog-popup"],
+  [data-slot="sheet-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="select-content"],
+  [data-slot="tooltip-content"] {
+    transition-property: opacity !important;
+    transition-duration: 120ms !important;
+    transform: none !important;
     }
 }

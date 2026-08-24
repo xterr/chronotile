@@ -42,6 +42,7 @@ const PAGES: Record<Page, { title: string; component: () => React.ReactNode }> =
 
 function Shell() {
   const [page, setPage] = useState<Page>("overview")
+  const [scrolled, setScrolled] = useState(false)
   const { profiles, loadingProfiles, activePath } = useDashboard()
   const Current = PAGES[page].component
 
@@ -49,17 +50,26 @@ function Shell() {
     <SidebarProvider>
       <AppSidebar page={page} onNavigate={setPage} />
       <SidebarInset className="h-svh overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+        <header
+          data-slot="app-header"
+          data-scrolled={scrolled || undefined}
+          className="absolute inset-x-0 top-0 z-20 flex h-14 items-center gap-2 border-b border-transparent bg-background px-4 transition-[background-color,border-color,box-shadow] duration-200 ease-out data-scrolled:border-border supports-backdrop-filter:bg-background/72 supports-backdrop-filter:backdrop-blur-xl supports-backdrop-filter:backdrop-saturate-150 supports-backdrop-filter:data-scrolled:bg-background/80"
+        >
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-1" />
-          <h1 className="text-sm font-semibold">{PAGES[page].title}</h1>
+          <h1 className="text-sm font-semibold tracking-title">
+            {PAGES[page].title}
+          </h1>
           <div className="ml-auto flex items-center gap-2">
             <ProjectPicker />
             <RangePicker />
             <ProfileMenu />
           </div>
         </header>
-        <main className="min-h-0 flex-1 overflow-auto p-4">
+        <main
+          onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
+          className="min-h-0 flex-1 overflow-auto p-4 pt-18"
+        >
           {page === "settings" ? (
             <Current />
           ) : !loadingProfiles && profiles.length === 0 ? (

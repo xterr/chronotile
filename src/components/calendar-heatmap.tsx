@@ -123,7 +123,7 @@ export function CalendarHeatmap({
     <div className="flex flex-col gap-2">
       <div className="w-full">
         <div
-          className="mb-1 grid text-[10px] whitespace-nowrap text-muted-foreground"
+          className="mb-1 grid text-[10px] tracking-micro whitespace-nowrap text-muted-foreground"
           style={{ gridTemplateColumns: template }}
         >
           {Array.from({ length: WEEKS }, (_, index) => (
@@ -172,7 +172,7 @@ export function CalendarHeatmap({
           )}
         </div>
       </div>
-      <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+      <div className="flex items-center justify-end gap-1 text-[10px] tracking-micro text-muted-foreground">
         <span>Less</span>
         <div className="size-2.5 rounded-xs bg-muted/40" />
         {RAMP.map((tone) => (

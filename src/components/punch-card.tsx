@@ -30,7 +30,7 @@ export function PunchCard({ cells }: { cells: HourlyCell[] }) {
     <div className="flex flex-col gap-0.5">
       {WEEKDAYS.map((day, weekday) => (
         <div key={day} className="flex items-center gap-0.5">
-          <span className="w-8 shrink-0 text-[10px] text-muted-foreground">
+          <span className="w-8 shrink-0 text-[10px] tracking-micro text-muted-foreground">
             {day}
           </span>
           {Array.from({ length: 24 }, (_, hour) => {

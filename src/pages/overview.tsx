@@ -22,6 +22,7 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import { useQuery } from "@/hooks/use-query"
@@ -112,23 +113,28 @@ export function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid gap-3 md:grid-cols-2">
         <StatCard
+          emphasis="primary"
           label="Total cost"
           value={data ? formatCost(data.cost) : null}
+          hint={
+            data ? `across ${formatCount(data.sessions)} sessions` : undefined
+          }
         />
         <StatCard
+          emphasis="primary"
           label="Tokens"
           value={data ? formatTokens(totalTokens) : null}
+          hint={
+            data
+              ? `${(cacheHit * 100).toFixed(1)}% served from cache`
+              : undefined
+          }
         />
-        <StatCard
-          label="Cache hit"
-          value={data ? `${(cacheHit * 100).toFixed(1)}%` : null}
-        />
-        <StatCard
-          label="Sessions"
-          value={data ? formatCount(data.sessions) : null}
-        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard
           label="Prompts"
           value={data ? formatCount(data.prompts) : null}
@@ -183,6 +189,7 @@ export function OverviewPage() {
                   fill="var(--color-cost)"
                   fillOpacity={0.25}
                   stroke="var(--color-cost)"
+                  {...chartSeriesAnimation}
                 />
               </AreaChart>
             </ChartContainer>
@@ -240,6 +247,7 @@ export function OverviewPage() {
                     dataKey={key}
                     stackId="tokens"
                     fill={`var(--color-${key})`}
+                    {...chartSeriesAnimation}
                   />
                 ))}
               </BarChart>

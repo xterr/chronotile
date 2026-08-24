@@ -10,6 +10,10 @@ const THEMES = { light: "", dark: ".dark" } as const
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const
 type TooltipNameType = number | string
 
+/* Off because Recharts tweens between old and new data on every range change,
+   drawing interpolated values that were never real. Spread into every series. */
+export const chartSeriesAnimation = { isAnimationActive: false } as const
+
 export type ChartConfig = Record<
   string,
   {

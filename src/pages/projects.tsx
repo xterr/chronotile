@@ -14,6 +14,7 @@ import {
   ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import {
@@ -101,6 +102,7 @@ export function ProjectsPage() {
                 nameKey="name"
                 innerRadius={55}
                 strokeWidth={2}
+                {...chartSeriesAnimation}
               />
               <ChartLegend content={<ChartLegendContent nameKey="name" />} />
             </PieChart>

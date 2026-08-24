@@ -12,6 +12,7 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  chartSeriesAnimation,
   type ChartConfig,
 } from "@/components/ui/chart"
 import {
@@ -62,8 +63,18 @@ export function ToolsPage() {
                 width={180}
               />
               <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="calls" fill="var(--color-calls)" radius={2} />
-              <Bar dataKey="errors" fill="var(--color-errors)" radius={2} />
+              <Bar
+                dataKey="calls"
+                fill="var(--color-calls)"
+                radius={2}
+                {...chartSeriesAnimation}
+              />
+              <Bar
+                dataKey="errors"
+                fill="var(--color-errors)"
+                radius={2}
+                {...chartSeriesAnimation}
+              />
             </BarChart>
           </ChartContainer>
         </CardContent>
