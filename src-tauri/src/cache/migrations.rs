@@ -325,7 +325,21 @@ fn drop_everything(conn: &Connection) -> Result<(), String> {
 }
 
 fn wipe_facts(conn: &Connection) -> Result<(), String> {
+    // FACT_TABLES names every fact table the *current* schema has, but a rebuild
+    // runs at the version that requested it — v2 predates fact_skills by four
+    // migrations. Skipping tables that do not exist yet keeps replaying the
+    // sequence on a fresh database working as the constant grows.
     for table in FACT_TABLES {
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !exists {
+            continue;
+        }
         conn.execute(&format!("DELETE FROM {table}"), [])
             .map_err(|e| e.to_string())?;
     }
