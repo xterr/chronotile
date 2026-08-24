@@ -192,10 +192,14 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
             <CardTitle>Cost share</CardTitle>
             <CardDescription>Total spend by {groupBy}</CardDescription>
           </CardHeader>
-          <CardContent className="flex items-center gap-4">
+          <CardContent className="flex flex-1 items-center justify-center gap-4">
             <ChartContainer
               config={shareConfig}
-              className="aspect-square h-56 shrink-0"
+              className={
+                groupBy === "agent"
+                  ? "aspect-square h-56 shrink-0"
+                  : "aspect-square h-72 shrink-0"
+              }
             >
               <PieChart>
                 <ChartTooltip
@@ -256,28 +260,37 @@ export function GroupBreakdown({ groupBy, title }: GroupBreakdownProps) {
                 </Pie>
               </PieChart>
             </ChartContainer>
-            <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
-              {shareData.map((entry) => (
-                <div
-                  key={entry.name}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <span
-                    className="size-2.5 shrink-0 rounded-xs"
-                    style={{ background: entry.fill }}
-                  />
-                  <span className="truncate">{entry.name}</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
-                    {totalCost > 0
-                      ? `${((entry.cost / totalCost) * 100).toFixed(1)}%`
-                      : "—"}
-                  </span>
-                  <span className="w-16 text-right font-mono text-xs tabular-nums">
-                    {formatCost(entry.cost)}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {groupBy === "agent" && (
+              <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
+                {shareData.map((entry) => (
+                  <div
+                    key={entry.name}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-xs"
+                      style={{ background: entry.fill }}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={<span className="min-w-0 truncate" />}
+                      >
+                        {entry.name}
+                      </TooltipTrigger>
+                      <TooltipContent>{entry.name}</TooltipContent>
+                    </Tooltip>
+                    <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
+                      {totalCost > 0
+                        ? `${((entry.cost / totalCost) * 100).toFixed(1)}%`
+                        : "—"}
+                    </span>
+                    <span className="w-16 text-right font-mono text-xs tabular-nums">
+                      {formatCost(entry.cost)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
