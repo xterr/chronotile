@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0] - 2026-08-24
+
+### Features
+
+- Add session tree, model variants, ranged heatmap and index rebuild
+
+### Miscellaneous
+
+- Ignore local .tmp workspace
+- Release 0.3.1
+
 ## [0.3.1] - 2026-08-14
 
 ### Miscellaneous
