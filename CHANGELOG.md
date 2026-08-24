@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.8.0] - 2026-08-24
+
+### Features
+
+- Adopt apple-style motion, materials and typography
+
+### Miscellaneous
+
+- Release 0.7.0
+
 ## [0.7.0] - 2026-08-24
 
 ### Features
