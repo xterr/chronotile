@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.0] - 2026-08-24
+
+### Features
+
+- Price the usage opencode records as free
+
+### Bug Fixes
+
+- Stop a fresh install failing on the first cache rebuild
+
+### Documentation
+
+- Correct outdated and untrue claims on the site and readme
+- Describe the models.dev request and the pages it feeds
+
+### Miscellaneous
+
+- Release 0.9.0
+
 ## [0.9.0] - 2026-08-24
 
 ### Refactoring
