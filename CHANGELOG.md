@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.1] - 2026-08-26
+
+### Miscellaneous
+
+- Release 1.0.0
+- Refactoring of overview page
+
 ## [1.0.0] - 2026-08-24
 
 ### Features
