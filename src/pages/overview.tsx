@@ -171,68 +171,75 @@ export function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-10">
-        <StatCard
-          emphasis="primary"
-          className="col-span-2"
-          label="Total cost"
-          delta={changeVs(
-            data ? resolveCost(data, costMode) : undefined,
-            previous.data ? resolveCost(previous.data, costMode) : undefined
-          )}
-          value={data ? formatCostMode(data, costMode) : null}
-          hint={
-            data
-              ? costMode === "both"
-                ? "estimated / reported"
-                : `across ${formatCount(data.sessions)} sessions`
-              : undefined
-          }
-        />
-        <StatCard
-          emphasis="primary"
-          className="col-span-2"
-          label="Tokens"
-          delta={changeVs(
-            totalTokens || undefined,
-            previous.data
-              ? previous.data.tokens.input +
-                previous.data.tokens.output +
-                previous.data.tokens.reasoning +
-                previous.data.tokens.cacheRead +
-                previous.data.tokens.cacheWrite
-              : undefined
-          )}
-          value={data ? formatTokens(totalTokens) : null}
-          hint={
-            data
-              ? `${(cacheHit * 100).toFixed(1)}% served from cache`
-              : undefined
-          }
-        />
-        <StatCard
-          className="col-span-2"
-          label="Saved by caching"
-          value={data ? formatCost(data.cacheSavings) : null}
-          hint="versus sending every cached token fresh"
-        />
-        <StatCard
-          label="Prompts"
-          delta={changeVs(data?.prompts, previous.data?.prompts)}
-          value={data ? formatCount(data.prompts) : null}
-        />
-        <StatCard
-          label="Tool calls"
-          value={data ? formatCount(data.toolCalls) : null}
-        />
-        <StatCard
-          label="Models"
-          value={data ? formatCount(data.modelsUsed) : null}
-        />
-        <StatCard
-          label="Active days"
-          value={data ? formatCount(data.activeDays) : null}
-        />
+      {/* The two headline figures get a row to themselves: their values are the
+          longest ones on the page ("$1.23k / $1.23k" in both-cost mode) and they
+          were being squeezed next to the small counters, which in turn had no
+          room left for seven-digit counts. Columns key off the container rather
+          than the viewport because collapsing the sidebar changes the space
+          available here by 200px at an unchanged window size. */}
+      <div className="@container/stats flex flex-col gap-3">
+        <div className="grid gap-3 @2xl/stats:grid-cols-2">
+          <StatCard
+            emphasis="primary"
+            label="Total cost"
+            delta={changeVs(
+              data ? resolveCost(data, costMode) : undefined,
+              previous.data ? resolveCost(previous.data, costMode) : undefined
+            )}
+            value={data ? formatCostMode(data, costMode) : null}
+            hint={
+              data
+                ? costMode === "both"
+                  ? "estimated / reported"
+                  : `across ${formatCount(data.sessions)} sessions`
+                : undefined
+            }
+          />
+          <StatCard
+            emphasis="primary"
+            label="Tokens"
+            delta={changeVs(
+              totalTokens || undefined,
+              previous.data
+                ? previous.data.tokens.input +
+                  previous.data.tokens.output +
+                  previous.data.tokens.reasoning +
+                  previous.data.tokens.cacheRead +
+                  previous.data.tokens.cacheWrite
+                : undefined
+            )}
+            value={data ? formatTokens(totalTokens) : null}
+            hint={
+              data
+                ? `${(cacheHit * 100).toFixed(1)}% served from cache`
+                : undefined
+            }
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3 @2xl/stats:grid-cols-3 @4xl/stats:grid-cols-5">
+          <StatCard
+            label="Saved by caching"
+            value={data ? formatCost(data.cacheSavings) : null}
+            hint="versus sending every cached token fresh"
+          />
+          <StatCard
+            label="Prompts"
+            delta={changeVs(data?.prompts, previous.data?.prompts)}
+            value={data ? formatCount(data.prompts) : null}
+          />
+          <StatCard
+            label="Tool calls"
+            value={data ? formatCount(data.toolCalls) : null}
+          />
+          <StatCard
+            label="Models"
+            value={data ? formatCount(data.modelsUsed) : null}
+          />
+          <StatCard
+            label="Active days"
+            value={data ? formatCount(data.activeDays) : null}
+          />
+        </div>
       </div>
 
       {spendShift && (
